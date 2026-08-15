@@ -2141,6 +2141,37 @@ inductive LTraceT : Registry N K V E → Registry N K V E → Prop
   | nil (r : Registry N K V E) : LTraceT r r
   | cons {r₁ r₂ r₃ : Registry N K V E} : LstepT r₁ r₂ → LTraceT r₂ r₃ → LTraceT r₁ r₃
 
+/-! ## Table-aware progress -/
+
+/-- If an ordinary lifecycle step applies, then a table-aware lifecycle
+step applies as well. -/
+theorem exists_lstepT_of_exists_lstep {r : Registry N K V E}
+    (h : TableConfinedWellFormed r) {r' : Registry N K V E}
+    (hstep : Lstep r r') : ∃ r'', LstepT r r'' := by
+  cases hstep with
+  | lBegin n f v hf hl ht => exact ⟨_, LstepT.lBegin r n f v hf hl ht⟩
+  | lIter n f ι κ v ι' δ hinv hf hl ht hstep =>
+      exact ⟨_, LstepT.lIter r n f ι κ v ι' δ hinv (h.loadingReach n f ι κ v hf hl) hf hl ht hstep⟩
+  | lFinish n f ι κ v δ hinv hf hl ht hstep =>
+      exact ⟨_, LstepT.lFinish r n f ι κ v δ hinv (h.loadingReach n f ι κ v hf hl) hf hl ht hstep⟩
+  | lRaise n f ι κ v e hf hl hstep =>
+      exact ⟨_, LstepT.lRaise r n f ι κ v e (h.loadingReach n f ι κ v hf hl) hf hl hstep⟩
+  | lDivertAbort n f ι κ v hf hl ht =>
+      exact ⟨_, LstepT.lDivertAbort r n f ι κ v (h.loadingReach n f ι κ v hf hl) hf hl ht⟩
+  | lDivertLand n f ι κ v δ hinv c hf hl ht hstep =>
+      exact ⟨_, LstepT.lDivertLand r n f ι κ v δ hinv c (h.loadingReach n f ι κ v hf hl) hf hl ht hstep⟩
+  | lLeave n f κ v hf hl ht => exact ⟨_, LstepT.lLeave r n f κ v hf hl ht⟩
+  | lUnload n f κ v o hf hl hg => exact ⟨_, LstepT.lUnload r n f κ v o hf hl hg⟩
+
+/-- **Theorem 66, clause 1 for the table-aware calculus.**  A
+non-quiescent, table-confined, acyclic state admits a table-aware
+lifecycle step. -/
+theorem exists_lstepT_of_not_quiet {r : Registry N K V E}
+    (h : TableConfinedWellFormed r) (hacyc : Acyclic r) (hq : ¬ quiet r) :
+    ∃ r', LstepT r r' := by
+  rcases exists_lstep_of_not_quiet h.cwf hacyc hq with ⟨r', hstep⟩
+  exact exists_lstepT_of_exists_lstep h hstep
+
 end Full
 
 end Cordix
