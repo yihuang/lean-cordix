@@ -575,6 +575,65 @@ theorem providerOf_some_lookup_active {r : Registry N K V E} {k : K} {m : N}
           refine ⟨g, ?_, hgact⟩
           simpa [lookup, hpm] using hg
 
+/-- A provider is an active fiber whose table defines the key. -/
+theorem providerOf_some_lookup_active_table {r : Registry N K V E} {k : K} {m : N}
+    (hn : NodupKeys r) (h : providerOf r k = some m) :
+    ∃ g : Fiber N K V E, lookup r m = some g ∧
+      ∃ κ v, g.lc = .active κ v ∧ (g.table k).isSome := by
+  induction r with
+  | nil => simp [providerOf] at h
+  | cons p rest ih =>
+      have hnrest : NodupKeys rest := by
+        change ((p.1 :: rest.map (fun q => q.1)).Nodup) at hn
+        rw [List.nodup_cons] at hn
+        exact hn.2
+      cases hlc : p.2.lc with
+      | inactive _ =>
+          simp [providerOf, hlc] at h
+          rcases ih hnrest h with ⟨g, hg, κ, v, hlcg, htbl⟩
+          have hpm : p.1 ≠ m := by
+            intro hEq
+            have hm : m ∈ rest.map (fun q => q.1) := providerOf_mem_keys h
+            change ((p.1 :: rest.map (fun q => q.1)).Nodup) at hn
+            rw [List.nodup_cons] at hn
+            exact hn.1 (by simpa [hEq] using hm)
+          exact ⟨g, by simpa [lookup, hpm] using hg, κ, v, hlcg, htbl⟩
+      | loading _ _ _ =>
+          simp [providerOf, hlc] at h
+          rcases ih hnrest h with ⟨g, hg, κ, v, hlcg, htbl⟩
+          have hpm : p.1 ≠ m := by
+            intro hEq
+            have hm : m ∈ rest.map (fun q => q.1) := providerOf_mem_keys h
+            change ((p.1 :: rest.map (fun q => q.1)).Nodup) at hn
+            rw [List.nodup_cons] at hn
+            exact hn.1 (by simpa [hEq] using hm)
+          exact ⟨g, by simpa [lookup, hpm] using hg, κ, v, hlcg, htbl⟩
+      | active κ v =>
+          simp [providerOf, hlc] at h
+          by_cases htbl : (p.2.table k).isSome
+          · simp [htbl] at h
+            have hpm : p.1 = m := h
+            exact ⟨p.2, by simp [lookup, hpm], κ, v, hlc, htbl⟩
+          · simp [htbl] at h
+            rcases ih hnrest h with ⟨g, hg, κ, v, hlcg, htblg⟩
+            have hpm : p.1 ≠ m := by
+              intro hEq
+              have hm : m ∈ rest.map (fun q => q.1) := providerOf_mem_keys h
+              change ((p.1 :: rest.map (fun q => q.1)).Nodup) at hn
+              rw [List.nodup_cons] at hn
+              exact hn.1 (by simpa [hEq] using hm)
+            exact ⟨g, by simpa [lookup, hpm] using hg, κ, v, hlcg, htblg⟩
+      | unloading _ _ _ =>
+          simp [providerOf, hlc] at h
+          rcases ih hnrest h with ⟨g, hg, κ, v, hlcg, htbl⟩
+          have hpm : p.1 ≠ m := by
+            intro hEq
+            have hm : m ∈ rest.map (fun q => q.1) := providerOf_mem_keys h
+            change ((p.1 :: rest.map (fun q => q.1)).Nodup) at hn
+            rw [List.nodup_cons] at hn
+            exact hn.1 (by simpa [hEq] using hm)
+          exact ⟨g, by simpa [lookup, hpm] using hg, κ, v, hlcg, htbl⟩
+
 /-- If `targetOf r n = some v`, then `v` is the provider map on the
 component's specification. -/
 theorem targetOf_view_eq {r : Registry N K V E} {n : N} {f : Fiber N K V E}
@@ -620,6 +679,43 @@ theorem targetOf_view_installed {r : Registry N K V E} {n : N} {f : Fiber N K V 
     rw [targetOf_view_eq hl ht k hk] at hvm
     rcases providerOf_some_lookup_active hn hvm with ⟨g, hg, κ, vg, hlc⟩
     exact ⟨g, hg, by rw [hlc]; trivial⟩
+
+theorem viewSpec_target {r : Registry N K V E} {n : N} {f : Fiber N K V E}
+    {v : K → Option N} (hl : lookup r n = some f) (ht : targetOf r n = some v) :
+    ∀ k, v k ≠ none → k ∈ f.comp.spec := by
+  intro k hk
+  unfold targetOf at ht
+  rw [hl] at ht
+  change ((if f.retired = true ∨ ¬ satisfies (sigmaOf r) f.comp.spec then none
+    else some (fun k => if k ∈ f.comp.spec then providerOf r k else none)) = some v) at ht
+  by_cases hc : f.retired = true ∨ ¬ satisfies (sigmaOf r) f.comp.spec
+  · rw [if_pos hc] at ht
+    simp at ht
+  · rw [if_neg hc] at ht
+    have hv : v = fun k => if k ∈ f.comp.spec then providerOf r k else none :=
+      (Option.some.inj ht).symm
+    rw [hv] at hk
+    by_cases hmem : k ∈ f.comp.spec
+    · exact hmem
+    · simp [hmem] at hk
+
+/-- The target view names only fibers that provision the key, assuming
+the table-to-provision invariant. -/
+theorem viewProv_target {r : Registry N K V E} {n : N} {f : Fiber N K V E}
+    {v : K → Option N} (hn : NodupKeys r)
+    (htableProv : ∀ n f, lookup r n = some f → ∀ k, (f.table k).isSome → k ∈ f.comp.prov)
+    (hl : lookup r n = some f) (ht : targetOf r n = some v) :
+    ∀ k m, v k = some m → ∃ g, lookup r m = some g ∧ k ∈ g.comp.prov := by
+  intro k m hvm
+  have hk_spec : k ∈ f.comp.spec :=
+    viewSpec_target hl ht k (by rw [hvm]; intro hnone; simp at hnone)
+  have htv : v k = providerOf r k := targetOf_view_eq hl ht k hk_spec
+  have hprov : providerOf r k = some m := by
+    rw [htv] at hvm
+    exact hvm
+  rcases providerOf_some_lookup_active_table hn hprov with ⟨g, hg, κ, vg, hlcg, htbl⟩
+  refine ⟨g, hg, ?_⟩
+  exact htableProv m g hg k htbl
 
 /-! ## Well-formedness (Definition 58) -/
 
