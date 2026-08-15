@@ -1080,6 +1080,23 @@ relation (no infinite increasing chains). -/
 def Acyclic (r : Registry N K V E) : Prop :=
   WellFounded (fun n m => Precedes r m n)
 
+/-! ## Traces -/
+
+/-- A trace is a finite sequence of orchestration and lifecycle steps. -/
+inductive Trace : Registry N K V E → Registry N K V E → Prop
+  | nil (r : Registry N K V E) : Trace r r
+  | cons {r₁ r₂ r₃ : Registry N K V E} :
+      (Ostep r₁ r₂ ∨ Lstep r₁ r₂) → Trace r₂ r₃ → Trace r₁ r₃
+
+/-- **Theorem 59 along traces.**  Well-formedness is preserved by every
+finite trace. -/
+theorem WellFormed.trace_preserved {r r' : Registry N K V E} (hwf : WellFormed r)
+    (h : Trace r r') : WellFormed r' := by
+  induction h with
+  | nil r => exact hwf
+  | cons hstep _ ih =>
+      exact ih (WellFormed.preserved hwf hstep)
+
 /-! ## Progress: no deadlock except the guarded unload -/
 
 
