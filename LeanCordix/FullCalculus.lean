@@ -2141,6 +2141,15 @@ inductive LTraceT : Registry N K V E → Registry N K V E → Prop
   | nil (r : Registry N K V E) : LTraceT r r
   | cons {r₁ r₂ r₃ : Registry N K V E} : LstepT r₁ r₂ → LTraceT r₂ r₃ → LTraceT r₁ r₃
 
+/-- `TableConfinedWellFormed` is preserved along table-aware lifecycle
+traces. -/
+theorem TableConfinedWellFormed.ltrace_preservedT {r r' : Registry N K V E}
+    (h : TableConfinedWellFormed r) (ht : LTraceT r r') : TableConfinedWellFormed r' := by
+  induction ht with
+  | nil => exact h
+  | cons hstep _ ih =>
+      exact ih (TableConfinedWellFormed.preserved_lstepT h hstep)
+
 /-! ## Table-aware progress -/
 
 /-- If an ordinary lifecycle step applies, then a table-aware lifecycle
@@ -2227,6 +2236,15 @@ theorem lstepT_iff_not_quiet {r : Registry N K V E}
     exact no_lstepT_of_quiet hq ⟨r', hstep⟩
   · intro hq
     exact exists_lstepT_of_not_quiet h hacyc hq
+
+/-- **Maximal finite table-aware traces end in quiescence.** -/
+theorem maximal_ltrace_ends_quiet {r r' : Registry N K V E}
+    (h : TableConfinedWellFormed r) (ht : LTraceT r r')
+    (hacyc' : Acyclic r') (hmax : ¬ ∃ r'', LstepT r' r'') : quiet r' := by
+  have h' : TableConfinedWellFormed r' := TableConfinedWellFormed.ltrace_preservedT h ht
+  apply Classical.byContradiction
+  intro hq
+  exact hmax (exists_lstepT_of_not_quiet h' hacyc' hq)
 
 end Full
 
