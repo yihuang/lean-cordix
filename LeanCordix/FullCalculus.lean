@@ -130,7 +130,7 @@ def del {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type} :
   | p :: rest, n => if p.1 = n then del rest n else p :: del rest n
 
 omit [DecidableEq K] in
-theorem lookup_set_eq (r : Registry N K V E) (n : N) (f : Fiber N K V E) :
+@[simp] theorem lookup_set_eq (r : Registry N K V E) (n : N) (f : Fiber N K V E) :
     lookup (set r n f) n = some f := by
   induction r with
   | nil => simp [set, lookup]
@@ -140,7 +140,7 @@ theorem lookup_set_eq (r : Registry N K V E) (n : N) (f : Fiber N K V E) :
       · simp [set, lookup, h, ih]
 
 omit [DecidableEq K] in
-theorem lookup_set_ne (r : Registry N K V E) (n m : N) (f : Fiber N K V E)
+@[simp] theorem lookup_set_ne (r : Registry N K V E) (n m : N) (f : Fiber N K V E)
     (hne : m ≠ n) : lookup (set r n f) m = lookup r m := by
   induction r with
   | nil => simp [set, lookup, Ne.symm hne]
@@ -169,7 +169,7 @@ theorem lookup_set_cases {r : Registry N K V E} {n m : N}
     exact ⟨hmn, by rwa [lookup_set_ne r n m f hmn] at h⟩
 
 omit [DecidableEq K] in
-theorem lookup_del_self (n : N) :
+@[simp] theorem lookup_del_self (n : N) :
     ∀ r : Registry N K V E, lookup (del r n) n = none
   | [] => rfl
   | p :: rest => by
@@ -181,7 +181,7 @@ theorem lookup_del_self (n : N) :
         exact lookup_del_self n rest
 
 omit [DecidableEq K] in
-theorem lookup_del_ne (r : Registry N K V E) (n m : N) (hne : m ≠ n) :
+@[simp] theorem lookup_del_ne (r : Registry N K V E) (n m : N) (hne : m ≠ n) :
     lookup (del r n) m = lookup r m := by
   induction r with
   | nil => rfl
@@ -278,7 +278,7 @@ theorem key_not_mem_del {r : Registry N K V E} {n : N} {p : N}
             exact ⟨(p, x), hx, rfl⟩)
 
 /-- The pointwise update preserves duplicate-free names. -/
-theorem nodupKeys_set (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+@[simp] theorem nodupKeys_set (r : Registry N K V E) (n : N) (f : Fiber N K V E)
     (hn : NodupKeys r) : NodupKeys (set r n f) := by
   induction r with
   | nil => simp [set, NodupKeys]
@@ -300,7 +300,7 @@ theorem nodupKeys_set (r : Registry N K V E) (n : N) (f : Fiber N K V E)
         · exact ih hnrest
 
 /-- Removal preserves duplicate-free names. -/
-theorem nodupKeys_del (r : Registry N K V E) (n : N) (hn : NodupKeys r) :
+@[simp] theorem nodupKeys_del (r : Registry N K V E) (n : N) (hn : NodupKeys r) :
     NodupKeys (del r n) := by
   induction r with
   | nil => simp [del, NodupKeys]
@@ -1489,6 +1489,91 @@ theorem component_confined_step {c : Component K V E}
     (hstep : Iterator.step c.iter σ = .ok (δ, g, c')) :
     ∀ k, σ k ≠ δ k → k ∈ c.prov :=
   confinedIterator_step h hstep
+
+/-! ## Preservation of the confinement invariants -/
+
+abbrev ViewSpec (r : Registry N K V E) : Prop :=
+  ∀ n f, lookup r n = some f → f.lc.installed →
+    ∀ k, f.lc.viewOf k ≠ none → k ∈ f.comp.spec
+
+abbrev TableProv (r : Registry N K V E) : Prop :=
+  ∀ n f, lookup r n = some f →
+    ∀ k, (f.table k).isSome → k ∈ f.comp.prov
+
+abbrev ViewProv (r : Registry N K V E) : Prop :=
+  ∀ n f, lookup r n = some f → f.lc.installed →
+    ∀ k m, f.lc.viewOf k = some m →
+    ∃ g, lookup r m = some g ∧ k ∈ g.comp.prov
+
+/-- `viewSpec` is preserved by a pointwise update that keeps the component
+and the committed view, and does not newly install the fiber. -/
+theorem viewSpec_set_viewSame (hvs : ViewSpec r) {n : N} {old new : Fiber N K V E}
+    (h : lookup r n = some old) (hc : old.comp = new.comp)
+    (hinst : new.lc.installed → old.lc.installed)
+    (hview : ∀ k, new.lc.viewOf k = old.lc.viewOf k) :
+    ViewSpec (set r n new) := by
+  intro m g hm hinst_m k hk_ne
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    have hold : old.lc.installed := hinst hinst_m
+    have hk_ne_old : old.lc.viewOf k ≠ none := by
+      rw [hview k] at hk_ne
+      exact hk_ne
+    have hs := hvs n old h hold k hk_ne_old
+    simpa [hc] using hs
+  · exact hvs m g hg hinst_m k hk_ne
+
+/-- `tableProv` is preserved by a pointwise update that keeps the table. -/
+theorem tableProv_set_viewSame (htp : TableProv r) {n : N} {old new : Fiber N K V E}
+    (h : lookup r n = some old) (hc : old.comp = new.comp)
+    (htable : ∀ k, new.table k = old.table k) :
+    TableProv (set r n new) := by
+  intro m g hm k ht
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    have ht_old : (old.table k).isSome := by
+      rw [htable k] at ht
+      exact ht
+    have hp := htp n old h k ht_old
+    simpa [hc] using hp
+  · exact htp m g hg k ht
+
+/-- `viewProv` is preserved by a pointwise update that keeps the component
+and the committed view, and does not newly install the fiber. -/
+theorem viewProv_set_viewSame (hvp : ViewProv r) {n : N} {old new : Fiber N K V E}
+    (h : lookup r n = some old) (hc : old.comp = new.comp)
+    (hinst : new.lc.installed → old.lc.installed)
+    (hview : ∀ k, new.lc.viewOf k = old.lc.viewOf k) :
+    ViewProv (set r n new) := by
+  intro m g hm hinst_m k p hvm
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    have hold : old.lc.installed := hinst hinst_m
+    have hv_old : old.lc.viewOf k = some p := by
+      rw [hview k] at hvm
+      exact hvm
+    rcases hvp n old h hold k p hv_old with ⟨q, hq, hqprov⟩
+    by_cases hpn : p = n
+    · subst p
+      have hq_old : q = old := Option.some.inj (hq.symm.trans h)
+      have hk_old_prov : k ∈ old.comp.prov := by
+        rw [hq_old] at hqprov
+        exact hqprov
+      have hk_new_prov : k ∈ new.comp.prov := by simpa [hc] using hk_old_prov
+      exact ⟨new, by simp, hk_new_prov⟩
+    · rw [lookup_set_ne r n p new hpn]
+      exact ⟨q, hq, hqprov⟩
+  · rcases hvp m g hg hinst_m k p hvm with ⟨q, hq, hqprov⟩
+    by_cases hpn : p = n
+    · subst p
+      have hq_old : q = old := Option.some.inj (hq.symm.trans h)
+      have hk_old_prov : k ∈ old.comp.prov := by
+        rw [hq_old] at hqprov
+        exact hqprov
+      have hk_new_prov : k ∈ new.comp.prov := by simpa [hc] using hk_old_prov
+      exact ⟨new, by simp, hk_new_prov⟩
+    · rw [lookup_set_ne r n p new hpn]
+      exact ⟨q, hq, hqprov⟩
 
 end Full
 
