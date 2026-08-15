@@ -99,6 +99,59 @@ inductive Lifts : Iterator Γ E → EffectCtx Γ → EffectCtx Γ → (EffectCtx
       (hcomp : ν' = ν ∘ track (g, stepFwd ι)) :
       Lifts ι (γ, κ) ec' ν'
 
+/-- Reachability between iterators: the continuations of `ι`, recursively. -/
+inductive Reachable : Iterator Γ E → Iterator Γ E → Prop
+  | self (ι : Iterator Γ E) : Reachable ι ι
+  | step {ι ι' ι'' : Iterator Γ E} {γ δ : Γ} {g : Γ → Γ}
+      (h : step ι γ = .ok (δ, g, some ι')) (hR : Reachable ι' ι'') :
+      Reachable ι ι''
+
+/-- Every reachable continuation of the iterator is witnessed.  This is
+the full `iter*` witness of Definition 51, parameterized over the whole
+iterator rather than one step. -/
+def WitnessedAll (ι : Iterator Γ E) : Prop :=
+  ∀ {ι'}, Reachable ι ι' → Witnessed ι'
+
+/-- The one-step witness is part of the whole-iterator witness. -/
+theorem witnessed_of_witnessedAll {ι : Iterator Γ E} (w : WitnessedAll ι) : Witnessed ι :=
+  w (Reachable.self ι)
+
+/-- A witnessed one-step iterator is witnessed as a whole iterator. -/
+theorem witnessedAll_ofEff {τ : Eff Γ} (h : _root_.Cordix.Witnessed τ) :
+    WitnessedAll (ofEff τ : Iterator Γ E) := by
+  intro ι' hR
+  cases hR with
+  | self ι => exact witnessed_ofEff h
+  | step hstep hR => cases hstep
+
+/-- **Definition 52 / Theorem 16 for iterators.** A complete successful run
+of a witnessed iterator leaves the soundness invariant unchanged. -/
+theorem soundness_lifts {ι : Iterator Γ E} (w : WitnessedAll ι)
+    {ec ec' : EffectCtx Γ} {ν : EffectCtx Γ → EffectCtx Γ}
+    (h : Lifts ι ec ec' ν) : soundness ec' = soundness ec := by
+  induction h with
+  | @done ι γ κ δ g hstep =>
+      have hg : g δ = γ := by
+        have := witnessed_of_witnessedAll w γ
+        unfold Witnessed at this
+        rw [hstep] at this
+        exact this
+      simp [soundness, hg]
+  | @cont ι ι' γ κ δ g hstep ec' ν ν' hν hcomp ih =>
+      have hg : g δ = γ := by
+        have := witnessed_of_witnessedAll w γ
+        unfold Witnessed at this
+        rw [hstep] at this
+        exact this
+      have w' : WitnessedAll ι' := by
+        intro ι'' hR
+        exact w (Reachable.step hstep hR)
+      have ih' := ih w'
+      calc
+        soundness ec' = soundness (δ, κ ∘ g) := ih'
+        _ = soundness (γ, κ) := by
+          simp [soundness, hg]
+
 end Iterator
 
 end Cordix
