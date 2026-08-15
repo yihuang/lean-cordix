@@ -7,3 +7,4 @@ import LeanCordix.Context
 import LeanCordix.Iterator
 import LeanCordix.Calculus
 import LeanCordix.FullCalculus
+import LeanCordix.TraceModel
