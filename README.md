@@ -5,7 +5,7 @@ A formalization in Lean 4 of the formal core of
 > *A Programming Paradigm for Spatiotemporal Composability* — Yifan Shi,
 > Wei Zhang, Tianyi Cui (Peking University, DeepSeek-AI).
 
-The paper (cordix.pdf) develops **Cordix / Cordis**: a programming paradigm
+[The paper](https://github.com/cordiverse/paper) develops **Cordix / Cordis**: a programming paradigm
 where a *single unified context* carries both *revertible effects* (every
 context transformation carries an inverse the runtime tracks) and *reactive
 coeffects* (each change of the context is classified against a component's
