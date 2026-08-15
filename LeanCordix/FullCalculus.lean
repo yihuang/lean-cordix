@@ -446,6 +446,7 @@ inductive LstepT : Registry N K V E → Registry N K V E → Prop
       (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
       (v : K → Option N) (ι' : Iterator (CoefCtx K V) E)
       (δ : CoefCtx K V) (h : CoefCtx K V → CoefCtx K V)
+      (hι : ι = f.comp.iter)
       (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
       (ht : targetOf r n = some v)
       (hstep : Iterator.step ι (sigmaOf r) = .ok (δ, h, some ι')) :
@@ -453,6 +454,7 @@ inductive LstepT : Registry N K V E → Registry N K V E → Prop
   | lFinish (r : Registry N K V E) (n : N) (f : Fiber N K V E)
       (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
       (v : K → Option N) (δ : CoefCtx K V) (h : CoefCtx K V → CoefCtx K V)
+      (hι : ι = f.comp.iter)
       (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
       (ht : targetOf r n = some v)
       (hstep : Iterator.step ι (sigmaOf r) = .ok (δ, h, none)) :
@@ -460,19 +462,20 @@ inductive LstepT : Registry N K V E → Registry N K V E → Prop
   | lRaise (r : Registry N K V E) (n : N) (f : Fiber N K V E)
       (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
       (v : K → Option N) (e : E)
+      (hι : ι = f.comp.iter)
       (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
       (hstep : Iterator.step ι (sigmaOf r) = .error e) :
       LstepT r (set r n { f with lc := .unloading κ v (some e) })
   | lDivertAbort (r : Registry N K V E) (n : N) (f : Fiber N K V E)
       (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
-      (v : K → Option N)
+      (v : K → Option N) (hι : ι = f.comp.iter)
       (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
       (ht : targetOf r n ≠ some v) :
       LstepT r (set r n { f with lc := .unloading κ v none })
   | lDivertLand (r : Registry N K V E) (n : N) (f : Fiber N K V E)
       (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
       (v : K → Option N) (δ : CoefCtx K V) (h : CoefCtx K V → CoefCtx K V)
-      (c : Option (Iterator (CoefCtx K V) E))
+      (c : Option (Iterator (CoefCtx K V) E)) (hι : ι = f.comp.iter)
       (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
       (ht : targetOf r n ≠ some v)
       (hstep : Iterator.step ι (sigmaOf r) = .ok (δ, h, c)) :
@@ -1763,6 +1766,51 @@ theorem viewProv_lUnload (hvp : ViewProv r) {n : N} {f : Fiber N K V E}
     rw [lookup_set_ne r n p { f with lc := .inactive o } hpn]
     exact ⟨q, hq, hqprov⟩
 
+/-- Stronger table confinement: a component is table-confined when it is
+confined (writes only provision keys) and, in addition, a successful
+iteration never produces a key that was neither already in the fiber's
+table nor in the component's provision.  This keeps the fiber table from
+copying keys out of other fibers. -/
+def Component.TableConfined (c : Component K V E) : Prop :=
+  Component.Confined c ∧
+    ∀ σ τ : CoefCtx K V, match Iterator.step c.iter σ with
+      | .ok (δ, _, _) => ∀ k, (δ k).isSome → (τ k).isSome ∨ k ∈ c.prov
+      | .error _ => True
+
+/-- Every component of a registry is table-confined. -/
+def Registry.TableConfined (r : Registry N K V E) : Prop :=
+  ∀ n f, lookup r n = some f → Component.TableConfined f.comp
+
+/-- A successful table-confined iteration preserves `tableProv` when its
+result `δ` is installed as the fiber's new table. -/
+theorem tableProv_set_table_step (htp : TableProv r) {n : N} {old new : Fiber N K V E}
+    {ι : Iterator (CoefCtx K V) E} {δ : CoefCtx K V}
+    {hinv : CoefCtx K V → CoefCtx K V}
+    {c : Option (Iterator (CoefCtx K V) E)}
+    (hconf : Component.TableConfined old.comp)
+    (h : lookup r n = some old) (hc : old.comp = new.comp)
+    (hι : ι = old.comp.iter)
+    (hstep : Iterator.step ι (sigmaOf r) = .ok (δ, hinv, c))
+    (htable_new : ∀ k, new.table k = δ k) :
+    TableProv (set r n new) := by
+  intro m g hm k ht
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    have ht_delta : (δ k).isSome := by
+      rw [htable_new k] at ht
+      exact ht
+    have hstep' : Iterator.step old.comp.iter (sigmaOf r) = .ok (δ, hinv, c) := by
+      rw [hι] at hstep
+      exact hstep
+    have hcopied := hconf.2 (sigmaOf r) old.table
+    rw [hstep'] at hcopied
+    have hk : (old.table k).isSome ∨ k ∈ old.comp.prov := hcopied k ht_delta
+    rcases hk with hk_old | hk_prov
+    · have hp := htp n old h k hk_old
+      simpa [hc] using hp
+    · simpa [hc] using hk_prov
+  · exact htp m g hg k ht
+
 /-! ## Preservation of the confinement invariants under all rules -/
 
 /-- `viewSpec` is preserved by every rule. -/
@@ -1871,6 +1919,119 @@ theorem ConfinedWellFormed.trace_preserved {r r' : Registry N K V E}
   | nil => exact h
   | cons hstep _ ih =>
       exact ih (ConfinedWellFormed.preserved h hstep)
+
+/-! ## Table-aware preservation -/
+
+/-- `WellFormed` is preserved by every table-aware step. -/
+theorem WellFormed.preservedT {r r' : Registry N K V E} (hwf : WellFormed r)
+    (hstep : Ostep r r' ∨ LstepT r r') : WellFormed r' := by
+  rcases hstep with h | h
+  · exact WellFormed.preserved hwf (Or.inl h)
+  · cases h with
+    | lBegin n f v hf hl ht => exact wellFormed_lBegin hwf hf hl ht
+    | lIter n f ι κ v ι' δ hinv hι hf hl ht hstep =>
+        let new : Fiber N K V E := { f with table := δ, lc := .loading ι' (κ ∘ hinv) v }
+        exact wellFormed_set_viewSame (old := f) (new := new) hwf hf rfl rfl
+          (by intro _; rw [hl]; trivial) (by intro _; trivial) (by intro k; rw [hl]; rfl)
+    | lFinish n f ι κ v δ hinv hι hf hl ht hstep =>
+        let new : Fiber N K V E := { f with table := δ, lc := .active (κ ∘ hinv) v }
+        exact wellFormed_set_viewSame (old := f) (new := new) hwf hf rfl rfl
+          (by intro _; rw [hl]; trivial) (by intro _; trivial) (by intro k; rw [hl]; rfl)
+    | lRaise n f ι κ v e hι hf hl hstep =>
+        let new : Fiber N K V E := { f with lc := .unloading κ v (some e) }
+        exact wellFormed_set_viewSame (old := f) (new := new) hwf hf rfl rfl
+          (by intro _; rw [hl]; trivial) (by intro _; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertAbort n f ι κ v hι hf hl ht =>
+        let new : Fiber N K V E := { f with lc := .unloading κ v none }
+        exact wellFormed_set_viewSame (old := f) (new := new) hwf hf rfl rfl
+          (by intro _; rw [hl]; trivial) (by intro _; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertLand n f ι κ v δ hinv c hι hf hl ht hstep =>
+        let new : Fiber N K V E := { f with table := δ, lc := .unloading (κ ∘ hinv) v none }
+        exact wellFormed_set_viewSame (old := f) (new := new) hwf hf rfl rfl
+          (by intro _; rw [hl]; trivial) (by intro _; trivial) (by intro k; rw [hl]; rfl)
+    | lLeave n f κ v hf hl ht =>
+        let new : Fiber N K V E := { f with lc := .unloading κ v none }
+        exact wellFormed_set_viewSame (old := f) (new := new) hwf hf rfl rfl
+          (by intro _; rw [hl]; trivial) (by intro _; trivial) (by intro k; rw [hl]; rfl)
+    | lUnload n f κ v o hf hl hg => exact wellFormed_lUnload hwf hf hl hg
+
+/-- `viewSpec` is preserved by every table-aware step. -/
+theorem viewSpec_preservedT (hvs : ViewSpec r) {r' : Registry N K V E}
+    (hstep : Ostep r r' ∨ LstepT r r') : ViewSpec r' := by
+  rcases hstep with h | h
+  · exact viewSpec_preserved hvs (Or.inl h)
+  · cases h with
+    | lBegin n f v hf hl ht => exact viewSpec_lBegin hvs hf ht
+    | lIter n f ι κ v ι' δ hinv hι hf hl ht hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lFinish n f ι κ v δ hinv hι hf hl ht hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lRaise n f ι κ v e hι hf hl hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertAbort n f ι κ v hι hf hl ht =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertLand n f ι κ v δ hinv c hι hf hl ht hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lLeave n f κ v hf hl ht =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lUnload n f κ v o hf hl hg => exact viewSpec_lUnload hvs hf
+
+/-- `viewProv` is preserved by every table-aware step. -/
+theorem viewProv_preservedT (hwf : WellFormed r) (hvs : ViewSpec r)
+    (hvp : ViewProv r) (htp : TableProv r) {r' : Registry N K V E}
+    (hstep : Ostep r r' ∨ LstepT r r') : ViewProv r' := by
+  rcases hstep with h | h
+  · exact viewProv_preserved hwf hvs hvp htp (Or.inl h)
+  · cases h with
+    | lBegin n f v hf hl ht => exact viewProv_lBegin hwf.nodupKeys htp hvp hf hl ht
+    | lIter n f ι κ v ι' δ hinv hι hf hl ht hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lFinish n f ι κ v δ hinv hι hf hl ht hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lRaise n f ι κ v e hι hf hl hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertAbort n f ι κ v hι hf hl ht =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertLand n f ι κ v δ hinv c hι hf hl ht hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lLeave n f κ v hf hl ht =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lUnload n f κ v o hf hl hg => exact viewProv_lUnload hvp hf hg
+
+/-- `tableProv` is preserved by every table-aware step, assuming the
+registry's components are table-confined. -/
+theorem tableProv_preservedT (htp : TableProv r) (htconf : Registry.TableConfined r)
+    {r' : Registry N K V E} (hstep : Ostep r r' ∨ LstepT r r') : TableProv r' := by
+  rcases hstep with h | h
+  · exact tableProv_preserved htp (Or.inl h)
+  · cases h with
+    | lBegin n f v hf hl ht =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lIter n f ι κ v ι' δ hinv hι hf hl ht hstep =>
+        exact tableProv_set_table_step htp (htconf n f hf) hf rfl hι hstep (by intro k; rfl)
+    | lFinish n f ι κ v δ hinv hι hf hl ht hstep =>
+        exact tableProv_set_table_step htp (htconf n f hf) hf rfl hι hstep (by intro k; rfl)
+    | lRaise n f ι κ v e hι hf hl hstep =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lDivertAbort n f ι κ v hι hf hl ht =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lDivertLand n f ι κ v δ hinv c hι hf hl ht hstep =>
+        exact tableProv_set_table_step htp (htconf n f hf) hf rfl hι hstep (by intro k; rfl)
+    | lLeave n f κ v hf hl ht =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lUnload n f κ v o hf hl hg =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+
+/-- `ConfinedWellFormed` is preserved by every table-aware step, assuming
+the registry's components are table-confined. -/
+theorem ConfinedWellFormed.preservedT {r r' : Registry N K V E}
+    (h : ConfinedWellFormed r) (htconf : Registry.TableConfined r)
+    (hstep : Ostep r r' ∨ LstepT r r') : ConfinedWellFormed r' := by
+  constructor
+  · exact WellFormed.preservedT h.wf hstep
+  · exact viewSpec_preservedT h.viewSpec hstep
+  · exact tableProv_preservedT h.tableProv htconf hstep
+  · exact viewProv_preservedT h.wf h.viewSpec h.viewProv h.tableProv hstep
 
 end Full
 
