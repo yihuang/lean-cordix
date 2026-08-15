@@ -1270,6 +1270,30 @@ theorem exists_lstep_of_not_quiet_of_acyclic {r : Registry N K V E} (hwf : WellF
   · rcases hguard with ⟨n, f, κ, v, o, hf, hl, hr⟩
     exact (no_guarded_unload_of_acyclic hwf hacyc hviewSpec hviewProv hno n f κ v o hf hl) hr
 
+/-! ## Confinement-derived invariant and final progress statement -/
+
+/-- The invariants that the confinement discipline of Definition 48
+supplies for a registry: installed committed views only name declared keys,
+installed committed views name only fibers whose provision contains that
+key, and every table key is in the fiber's provision.  These are exactly
+what the acyclic progress theorem needs. -/
+structure ConfinedWellFormed (r : Registry N K V E) : Prop where
+  wf : WellFormed r
+  viewSpec : ∀ n f, lookup r n = some f → f.lc.installed →
+    ∀ k, f.lc.viewOf k ≠ none → k ∈ f.comp.spec
+  tableProv : ∀ n f, lookup r n = some f →
+    ∀ k, (f.table k).isSome → k ∈ f.comp.prov
+  viewProv : ∀ n f, lookup r n = some f → f.lc.installed →
+    ∀ k m, f.lc.viewOf k = some m →
+    ∃ g, lookup r m = some g ∧ k ∈ g.comp.prov
+
+/-- **Theorem 66, clause 1 (full calculus).**  Under acyclic precedence
+and the confinement-derived invariants, a non-quiescent registry admits a
+lifecycle step. -/
+theorem exists_lstep_of_not_quiet {r : Registry N K V E} (hwf : ConfinedWellFormed r)
+    (hacyc : Acyclic r) (h : ¬ quiet r) : ∃ r', Lstep r r' :=
+  exists_lstep_of_not_quiet_of_acyclic hwf.wf hacyc hwf.viewSpec hwf.viewProv h
+
 end Full
 
 end Cordix
