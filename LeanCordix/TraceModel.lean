@@ -344,6 +344,204 @@ theorem ambient_next_eq_of_not_lUnload (st : Step s)
   | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep => simp [next, edit, psi, Step.kind, hf, set_set_eq]
   | lLeave n f κ v hf hl ht => simp [next, edit, psi, Step.kind, hf]
   | lUnload n f κ v o hf hl hg => simp [Step.kind] at h
+/-- A step whose `Ψ` writes no table leaves the acting fiber's table
+unchanged. -/
+theorem table_next_eq_of_not_writesTable (st : Step s)
+    (h : ¬ StepKind.writesTable st.kind) {f f' : Fiber N K V E}
+    (hf : lookup s.reg st.name = some f)
+    (hf' : lookup (next st).reg st.name = some f') :
+    f'.table = f.table := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simp [next, edit, psi, Step.name] at hf hf'; rw [hn] at hf; cases hf
+  | oRetire n f hf0 => simp [next, edit, psi, Step.name, hf0] at hf hf'; cases hf; cases hf'; rfl
+  | oRemove n f o hf0 hl hchild => simp [next, edit, psi, Step.name] at hf hf'
+  | lBegin n f v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf'; cases hf; cases hf'; rfl
+  | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep => simp [Step.kind, StepKind.writesTable] at h
+  | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep => simp [Step.kind, StepKind.writesTable] at h
+  | lRaise n f ι κ v e hreach hf0 hl hstep => simp [next, edit, psi, Step.name, hf0] at hf hf'; cases hf; cases hf'; rfl
+  | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf'; cases hf; cases hf'; rfl
+  | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep => simp [Step.kind, StepKind.writesTable] at h
+  | lLeave n f κ v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf'; cases hf; cases hf'; rfl
+  | lUnload n f κ v o hf0 hl hg => simp [next, edit, psi, Step.name, hf0] at hf hf'; cases hf; cases hf'; rfl
+
+/-- **Lemma 54(2).** The committed view changes only at `L-Begin` and
+`L-Unload`; in particular it is constant while both old and new lifecycle
+states are installed. -/
+theorem viewOf_next_eq_of_installed (st : Step s)
+    {f f' : Fiber N K V E}
+    (hf : lookup s.reg st.name = some f)
+    (hf' : lookup (next st).reg st.name = some f')
+    (hinst : f.lc.installed) (hinst' : f'.lc.installed) :
+    f'.lc.viewOf = f.lc.viewOf := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simp [next, edit, psi, Step.name, hn] at hf hf'
+  | oRetire n f hf0 => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; rfl
+  | oRemove n f o hf0 hl hchild => simp [next, edit, psi, Step.name, hf0] at hf hf'
+  | lBegin n f v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl]; cases hf'; rfl
+  | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl]; cases hf'; rfl
+  | lRaise n f ι κ v e hreach hf0 hl hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl]; cases hf'; rfl
+  | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl]; cases hf'; rfl
+  | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl]; cases hf'; rfl
+  | lLeave n f κ v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl]; cases hf'; rfl
+  | lUnload n f κ v o hf0 hl hg => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; cases hinst'
+
+/-- **Lemma 54(4), opening.**  An installed fiber can only come into
+existence at `L-Begin` of that fiber. -/
+theorem installed_next_of_not_installed (st : Step s)
+    {f f' : Fiber N K V E}
+    (hf : lookup s.reg st.name = some f)
+    (hf' : lookup (next st).reg st.name = some f')
+    (hinst : ¬ f.lc.installed) (hinst' : f'.lc.installed) :
+    st.kind = StepKind.lBegin := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simp [Step.name, hn] at hf
+  | oRetire n f hf0 => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; exact False.elim (hinst hinst')
+  | oRemove n f o hf0 hl hchild => simp [next, edit, psi, Step.name, hf0] at hf'
+  | lBegin n f v hf0 hl ht => rfl
+  | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lRaise n f ι κ v e hreach hf0 hl hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lLeave n f κ v hf0 hl ht => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lUnload n f κ v o hf0 hl hg => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; cases hinst'
+
+/-- **Lemma 54(4), closing.**  An installed fiber can only cease to be
+installed at `L-Unload` of that fiber. -/
+theorem not_installed_next_of_installed (st : Step s)
+    {f f' : Fiber N K V E}
+    (hf : lookup s.reg st.name = some f)
+    (hf' : lookup (next st).reg st.name = some f')
+    (hinst : f.lc.installed) (hinst' : ¬ f'.lc.installed) :
+    st.kind = StepKind.lUnload := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simp [Step.name, hn] at hf
+  | oRetire n f hf0 => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; change ¬ f.lc.installed at hinst'; exact False.elim (hinst' hinst)
+  | oRemove n f o hf0 hl hchild => simp [next, edit, psi, Step.name, hf0] at hf'
+  | lBegin n f v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; rw [hl] at hinst; simp [Lifecycle.installed] at hinst
+  | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; simp [Lifecycle.installed] at hinst'
+  | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; simp [Lifecycle.installed] at hinst'
+  | lRaise n f ι κ v e hreach hf0 hl hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; simp [Lifecycle.installed] at hinst'
+  | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; simp [Lifecycle.installed] at hinst'
+  | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; simp [Lifecycle.installed] at hinst'
+  | lLeave n f κ v hf0 hl ht => simp [next, edit, psi, Step.name, hf0, hl] at hf hf' ⊢; cases hf; cases hf'; simp [Lifecycle.installed] at hinst'
+  | lUnload n f κ v o hf0 hl hg => rfl
+
+/-- **Lemma 54(5).** The component and parent fields are written once,
+when the fiber is inserted; they never change afterward. -/
+theorem comp_parent_next_eq (st : Step s) {m : N} {f f' : Fiber N K V E}
+    (hf : lookup s.reg m = some f) (hf' : lookup (next st).reg m = some f') :
+    f'.comp = f.comp ∧ f'.parent = f.parent := by
+  by_cases hm : m = st.name
+  · subst m
+    cases st with
+    | oInsert n c p hn hp hdisj => simp [Step.name, hn] at hf
+    | oRetire n f hf0 => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | oRemove n f o hf0 hl hchild => simp [next, edit, psi, Step.name] at hf'
+    | lBegin n f v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | lRaise n f ι κ v e hreach hf0 hl hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | lLeave n f κ v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+    | lUnload n f κ v o hf0 hl hg => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp
+  · have hlook := lookup_next_eq_of_ne st hm
+    rw [hlook] at hf'
+    have hff : f = f' := Option.some.inj (hf.symm.trans hf')
+    cases hff
+    simp
+
+/-- **Lemma 54(5), retired monotonicity.**  The retirement flag only
+changes from `false` to `true`, and only by `O-Retire` acting on that
+fiber. -/
+theorem retired_monotone (st : Step s) {m : N} {f f' : Fiber N K V E}
+    (hf : lookup s.reg m = some f) (hf' : lookup (next st).reg m = some f')
+    (hret : f.retired = true) : f'.retired = true := by
+  by_cases hm : m = st.name
+  · subst m
+    cases st with
+    | oInsert n c p hn hp hdisj => simp [Step.name, hn] at hf
+    | oRetire n f hf0 => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; rfl
+    | oRemove n f o hf0 hl hchild => simp [next, edit, psi, Step.name] at hf'
+    | lBegin n f v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+    | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+    | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+    | lRaise n f ι κ v e hreach hf0 hl hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+    | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+    | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+    | lLeave n f κ v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+    | lUnload n f κ v o hf0 hl hg => simp [next, edit, psi, Step.name, hf0] at hf hf' ⊢; cases hf; cases hf'; simp [hret]
+  · have hlook := lookup_next_eq_of_ne st hm
+    rw [hlook] at hf'
+    have hff : f = f' := Option.some.inj (hf.symm.trans hf')
+    rw [← hff]
+    exact hret
+
+/-- **Lemma 54(5), retired only by `O-Retire`.**  A retirement flag that
+is newly true can only be written by `O-Retire` acting on that fiber. -/
+theorem retired_changed_iff (st : Step s) {m : N} {f f' : Fiber N K V E}
+    (hf : lookup s.reg m = some f) (hf' : lookup (next st).reg m = some f')
+    (hnot : f.retired = false) (hret : f'.retired = true) :
+    st.name = m ∧ st.kind = StepKind.oRetire := by
+  by_cases hm : m = st.name
+  · subst m
+    cases st with
+    | oInsert n c p hn hp hdisj => simp [Step.name, hn] at hf
+    | oRetire n f hf0 => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; rfl
+    | oRemove n f o hf0 hl hchild => simp [next, edit, psi, Step.name] at hf'
+    | lBegin n f v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+    | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+    | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+    | lRaise n f ι κ v e hreach hf0 hl hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+    | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+    | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+    | lLeave n f κ v hf0 hl ht => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+    | lUnload n f κ v o hf0 hl hg => simp [next, edit, psi, Step.name, hf0] at hf hf' hnot hret ⊢; cases hf; cases hf'; rw [hnot] at hret; cases hret
+  · have hlook := lookup_next_eq_of_ne st hm
+    rw [hlook] at hf'
+    have hff : f = f' := Option.some.inj (hf.symm.trans hf')
+    rw [← hff] at hret
+    rw [hnot] at hret
+    cases hret
+
+/-- **Lemma 54(3), ambient half.**  Only `L-Unload` applies the
+accumulator to the ambient context; every other `Ψ` leaves the ambient
+context alone. -/
+theorem psi_ambient_eq_of_not_lUnload (st : Step s)
+    (h : st.kind ≠ StepKind.lUnload) :
+    ∀ x, (psi st x).ambient = x.ambient := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simp [psi, Step.kind]
+  | oRetire n f hf0 => simp [psi, Step.kind]
+  | oRemove n f o hf0 hl hchild => simp [psi, Step.kind]
+  | lBegin n f v hf0 hl ht => simp [psi, Step.kind]
+  | lIter n f ι κ v ι' δ hinv hreach hf0 hl ht hstep =>
+      simp [psi, Step.kind]
+      intro x
+      cases hx : lookup x.reg n <;> simp [hx]
+  | lFinish n f ι κ v δ hinv hreach hf0 hl ht hstep =>
+      simp [psi, Step.kind]
+      intro x
+      cases hx : lookup x.reg n <;> simp [hx]
+  | lRaise n f ι κ v e hreach hf0 hl hstep => simp [psi, Step.kind]
+  | lDivertAbort n f ι κ v hreach hf0 hl ht => simp [psi, Step.kind]
+  | lDivertLand n f ι κ v δ hinv c hreach hf0 hl ht hstep =>
+      simp [psi, Step.kind]
+      intro x
+      cases hx : lookup x.reg n <;> simp [hx]
+  | lLeave n f κ v hf0 hl ht => simp [psi, Step.kind]
+  | lUnload n f κ v o hf0 hl hg => simp [Step.kind] at h
+
+/-- **Lemma 54(3), table half.**  A `Ψ` that writes no table leaves every
+registry unchanged. -/
+theorem psi_reg_eq_of_not_writesTable (st : Step s)
+    (h : ¬ StepKind.writesTable st.kind) :
+    ∀ x, (psi st x).reg = x.reg := by
+  cases st <;> simp [psi, Step.kind, StepKind.writesTable] at h ⊢
+
+
 end Step
 
 end Full
