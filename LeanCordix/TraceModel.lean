@@ -23,9 +23,12 @@ only rules that open/close an episode, `Ψ` writes tables only at the three
 iteration rules and the accumulator only at `L-Unload`, and the immutable
 fiber fields and monotone retirement flag follow the same case analysis.
 The module also defines Type-level `StepTrace`s with preservation of
-well-formedness, and proves the deletion lemmas used by Lemma 57: a
-vestigial entry contributes nothing to `sigmaOf`, `providerOf`, `targetOf`,
-or `relied`, so deleting it leaves those observations unchanged.
+well-formedness, and proves Lemma 57 for vestigial entries: a vestigial
+entry contributes nothing to `sigmaOf`, `providerOf`, `targetOf`, or
+`relied`; deleting it preserves every step acting on another fiber
+(`step_del_of_vestigial`), and such a deleted-state step lifts back to the
+original state outside the explicit `O-Insert`/`O-Remove` conflicts
+(`step_of_del_vestigial`).
 -/
 
 namespace Cordix
