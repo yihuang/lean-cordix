@@ -22,7 +22,7 @@ whole system.
 | `LeanCordix.Context` | §3.3 | The unified context (Def 32), observational equivalence (Def 33), agreement on satisfaction/`notify` (reactivity is a property of `Σ/≃`), and distinct-key independence of `set` operations (Thm 40, core case). |
 | `LeanCordix.Calculus` | §4.1–4.2, 4.4 | Components, fibers, the registry and `Σ_γ` (Defs 43–45), target views & quiescence (Def 46), the withdrawal guard (Def 50), the five base-calculus rules, well-formedness (Def 58), **preservation** of clauses (1)–(2) (Thm 59), **ordering** first claim (Thm 63, Eq. 58), and **progress / no deadlock** for the base calculus (Thm 66.1). |
 | `LeanCordix.Iterator` | §4.3.2, 4.3.4 | Effect iterators with errors (Defs 51/52, Eq. 49), their witnessed step relation, `Reachable` continuations and the full-iterator witness `WitnessedAll`, the `Lifts` relation for complete successful runs with **soundness of complete runs** (`soundness_lifts`), and the embedding of plain effects. |
-| `LeanCordix.TraceModel` | §4.4 | The trace-indexed model `edit ∘ Ψ`: a `State` structure carrying the registry plus the ambient context, a **Type-level step record** `Step` with explicit `name` and `kind` fields, the state map `Ψ` and the edit `edit` as ordinary functions `State → State`, the factorization `next st = edit st (Ψ st)` (Eq. 52), and the first clauses of Lemma 54 (registry and fiber locality, ambient locality of `Ψ`). |
+| `LeanCordix.TraceModel` | §4.4 | The trace-indexed model `edit ∘ Ψ`: a `State` structure carrying the registry plus the ambient context, a **Type-level step record** `Step` with explicit `name` and `kind` fields, the state map `Ψ` and the edit `edit` as ordinary functions `State → State`, the factorization `next st = edit st (Ψ st)` (Eq. 52), Lemma 54, Type-level `StepTrace` preservation, and the vestigial-entry deletion lemmas underlying Lemma 57. |
 | `LeanCordix.FullCalculus` | §4.3–4.4 | The full ten-rule calculus: four-state lifecycle (Def 49), `L-Begin`, `L-Iter`, `L-Finish`, `L-Divert` (abort and landing), `L-Raise`, `L-Leave`, `L-Unload`, plus `O-Insert`/`O-Retire`/`O-Remove`. Defines full `WellFormed` (Def 58, all four clauses), proves **preservation of all four clauses under all ten rules** (Thm 59) and **along finite traces**, packages the confinement-derived invariants as `ConfinedWellFormed` and proves **their preservation under all ten rules** (Thm 59 again), adds the **table-aware lifecycle relation** `LstepT`/`TStep`, **proves preservation under table-aware steps** (`ConfinedWellFormed.preservedT`), packages `TableConfinedWellFormed` with component confinement and loading-iterator reachability, **proves table-aware lifecycle trace preservation**, and **proves table-aware progress** (`exists_lstepT_of_not_quiet`).  It also proves **progress** (Thm 66.1) under acyclicity plus those invariants (`exists_lstep_of_not_quiet`), and **quiescence is sound** (`no_lstep_of_quiet`). |
 
 ## Scope
@@ -46,8 +46,8 @@ All of the formalized definitions and the following results carry full proofs:
 
 Left as future work: the remaining global metatheory built on confinement
 (§4.4.2–4.4.5: recovery exactness, resolution coherence, termination,
-confluence, and the full statements of Lemmas 54–57 beyond the clauses
-now proved in `TraceModel`).  The confinement invariants themselves are
+confluence, and the full statements of Lemmas 55–57 beyond the deletion
+lemmas now proved in `TraceModel`).  The confinement invariants themselves are
 packaged and preserved (`ConfinedWellFormed`), and full progress
 (Thm 66.1) is proved under acyclicity plus those invariants; termination
 (Thm 66.2) and confluence (Thm 73) remain open.

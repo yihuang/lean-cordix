@@ -16,9 +16,16 @@ the state map `Ψ` and the edit `edit` of Definition 53 as ordinary functions
 `State → State`.
 
 The factorization `s' = edit (Ψ s)` of Equation (52) is then a theorem
-(`Step.factorization`), and the first clauses of Lemma 54 are proved from
-the definition of the step record: registry changes are confined to the
-acting fiber, and only `L-Unload` moves the ambient context.
+(`Step.factorization`).  Lemma 54 is proved from the definition of the step
+record: registry changes are confined to the acting fiber, the committed
+view is constant through an installed episode, `L-Begin`/`L-Unload` are the
+only rules that open/close an episode, `Ψ` writes tables only at the three
+iteration rules and the accumulator only at `L-Unload`, and the immutable
+fiber fields and monotone retirement flag follow the same case analysis.
+The module also defines Type-level `StepTrace`s with preservation of
+well-formedness, and proves the deletion lemmas used by Lemma 57: a
+vestigial entry contributes nothing to `sigmaOf`, `providerOf`, `targetOf`,
+or `relied`, so deleting it leaves those observations unchanged.
 -/
 
 namespace Cordix
