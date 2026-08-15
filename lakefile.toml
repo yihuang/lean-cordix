@@ -1,0 +1,10 @@
+name = "lean-cordix"
+version = "0.1.0"
+defaultTargets = ["lean-cordix"]
+
+[[lean_lib]]
+name = "LeanCordix"
+
+[[lean_exe]]
+name = "lean-cordix"
+root = "Main"
