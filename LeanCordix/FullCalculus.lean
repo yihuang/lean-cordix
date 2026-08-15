@@ -1355,6 +1355,45 @@ theorem no_lstep_of_quiet {r : Registry N K V E} (hq : quiet r) :
       rw [hl] at hq'
       simp at hq'
 
+/-! ## Confinement (Definition 48, write half) -/
+
+/-- An iterator is confined to a list of keys when every successful step
+changes only those keys.  This is the write half of Definition 48. -/
+def ConfinedIterator (ι : Iterator (CoefCtx K V) E) (P : List K) : Prop :=
+  ∀ σ, match Iterator.step ι σ with
+    | .ok (δ, _, _) => ∀ k, σ k ≠ δ k → k ∈ P
+    | .error _ => True
+
+/-- A component is confined when its iterator is confined to its
+provision. -/
+def Component.Confined (c : Component K V E) : Prop :=
+  ConfinedIterator c.iter c.prov
+
+/-- Every component of a registry is confined. -/
+def Registry.Confined (r : Registry N K V E) : Prop :=
+  ∀ n f, lookup r n = some f → Component.Confined f.comp
+
+/-- The unfolding lemma for confined iterators. -/
+theorem confinedIterator_step {ι : Iterator (CoefCtx K V) E} {P : List K}
+    (h : ConfinedIterator ι P) {σ δ : CoefCtx K V} {g : CoefCtx K V → CoefCtx K V}
+    {c : Option (Iterator (CoefCtx K V) E)}
+    (hstep : Iterator.step ι σ = .ok (δ, g, c)) :
+    ∀ k, σ k ≠ δ k → k ∈ P := by
+  unfold ConfinedIterator at h
+  have := h σ
+  rw [hstep] at this
+  exact this
+
+/-- A confined component's successful iteration writes only provision
+keys. -/
+theorem component_confined_step {c : Component K V E}
+    (h : Component.Confined c) {σ δ : CoefCtx K V}
+    {g : CoefCtx K V → CoefCtx K V}
+    {c' : Option (Iterator (CoefCtx K V) E)}
+    (hstep : Iterator.step c.iter σ = .ok (δ, g, c')) :
+    ∀ k, σ k ≠ δ k → k ∈ c.prov :=
+  confinedIterator_step h hstep
+
 end Full
 
 end Cordix
