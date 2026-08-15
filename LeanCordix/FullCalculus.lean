@@ -1575,6 +1575,246 @@ theorem viewProv_set_viewSame (hvp : ViewProv r) {n : N} {old new : Fiber N K V 
     · rw [lookup_set_ne r n p new hpn]
       exact ⟨q, hq, hqprov⟩
 
+/-- `viewSpec` is preserved by inserting a fresh inactive fiber. -/
+theorem viewSpec_setFresh (hvs : ViewSpec r) {n : N} {fresh : Fiber N K V E}
+    (hfresh : fresh.lc = .inactive none) : ViewSpec (set r n fresh) := by
+  intro m g hm hinst_m k hk_ne
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    rw [hfresh] at hinst_m
+    cases hinst_m
+  · exact hvs m g hg hinst_m k hk_ne
+
+/-- `viewSpec` is preserved by removal. -/
+theorem viewSpec_del (hvs : ViewSpec r) {n : N} : ViewSpec (del r n) := by
+  intro m g hm hinst_m k hk_ne
+  rcases lookup_del_cases (n := n) hm with ⟨hmn, hg⟩
+  exact hvs m g hg hinst_m k hk_ne
+
+/-- `viewSpec` is preserved by `L-Begin`. -/
+theorem viewSpec_lBegin (hvs : ViewSpec r) {n : N} {f : Fiber N K V E}
+    {v : K → Option N} (hf : lookup r n = some f) (ht : targetOf r n = some v) :
+    ViewSpec (set r n { f with lc := .loading f.comp.iter id v }) := by
+  intro m g hm hinst_m k hk_ne
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    change v k ≠ none at hk_ne
+    have hk_spec : k ∈ f.comp.spec := viewSpec_target hf ht k hk_ne
+    simpa using hk_spec
+  · exact hvs m g hg hinst_m k hk_ne
+
+/-- `viewSpec` is preserved by `L-Unload`. -/
+theorem viewSpec_lUnload (hvs : ViewSpec r) {n : N} {f : Fiber N K V E}
+    {o : Option E} (_hf : lookup r n = some f) :
+    ViewSpec (set r n { f with lc := .inactive o }) := by
+  intro m g hm hinst_m k hk_ne
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    cases hinst_m
+  · exact hvs m g hg hinst_m k hk_ne
+
+/-- `tableProv` is preserved by inserting a fiber with an empty table. -/
+theorem tableProv_setFresh (htp : TableProv r) {n : N} {fresh : Fiber N K V E}
+    (hfresh_table : ∀ k, fresh.table k = none) : TableProv (set r n fresh) := by
+  intro m g hm k ht
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    rw [hfresh_table k] at ht
+    cases ht
+  · exact htp m g hg k ht
+
+/-- `tableProv` is preserved by removal. -/
+theorem tableProv_del (htp : TableProv r) {n : N} : TableProv (del r n) := by
+  intro m g hm k ht
+  rcases lookup_del_cases (n := n) hm with ⟨hmn, hg⟩
+  exact htp m g hg k ht
+
+/-- `viewProv` is preserved by inserting a fresh inactive fiber. -/
+theorem viewProv_setFresh (hvp : ViewProv r) {n : N} {fresh : Fiber N K V E}
+    (hnone : lookup r n = none) (hfresh : fresh.lc = .inactive none) :
+    ViewProv (set r n fresh) := by
+  intro m g hm hinst_m k p hvm
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    rw [hfresh] at hinst_m
+    cases hinst_m
+  · rcases hvp m g hg hinst_m k p hvm with ⟨q, hq, hqprov⟩
+    by_cases hpn : p = n
+    · subst p
+      rw [hnone] at hq
+      simp at hq
+    · rw [lookup_set_ne r n p fresh hpn]
+      exact ⟨q, hq, hqprov⟩
+
+/-- `viewProv` is preserved by removal. -/
+theorem viewProv_del (hwf : WellFormed r) (hvs : ViewSpec r) (hvp : ViewProv r)
+    {n : N} {f : Fiber N K V E} {o : Option E}
+    (h : lookup r n = some f) (hl : f.lc = .inactive o) :
+    ViewProv (del r n) := by
+  intro m g hm hinst_m k p hvm
+  rcases lookup_del_cases (n := n) hm with ⟨hmn, hg⟩
+  rcases hvp m g hg hinst_m k p hvm with ⟨q, hq, hqprov⟩
+  have hpn : p ≠ n := by
+    intro heq; subst p
+    have hk_spec : k ∈ g.comp.spec := hvs m g hg hinst_m k (by
+      intro hnone; rw [hnone] at hvm; simp at hvm)
+    rcases hwf.viewInstalled m g hg hinst_m k hk_spec n hvm with ⟨gn, hgn, hgninst⟩
+    have hgn_f : gn = f := Option.some.inj (hgn.symm.trans h)
+    rw [hgn_f, hl] at hgninst
+    cases hgninst
+  rw [lookup_del_ne r n p hpn]
+  exact ⟨q, hq, hqprov⟩
+
+/-- `viewProv` is preserved by `L-Begin`. -/
+theorem viewProv_lBegin (hn : NodupKeys r) (htp : TableProv r) (hvp : ViewProv r)
+    {n : N} {f : Fiber N K V E} {v : K → Option N}
+    (hf : lookup r n = some f) (_hl : f.lc = .inactive none) (ht : targetOf r n = some v) :
+    ViewProv (set r n { f with lc := .loading f.comp.iter id v }) := by
+  intro m g hm hinst_m k p hvm
+  rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+  · subst m; subst g
+    change v k = some p at hvm
+    rcases viewProv_target hn htp hf ht k p hvm with ⟨q, hq, hqprov⟩
+    by_cases hpn : p = n
+    · subst p
+      have hq_f : q = f := Option.some.inj (hq.symm.trans hf)
+      have hk_f_prov : k ∈ f.comp.prov := by rw [hq_f] at hqprov; exact hqprov
+      exact ⟨{ f with lc := .loading f.comp.iter id v }, by simp, by simpa using hk_f_prov⟩
+    · rw [lookup_set_ne r n p { f with lc := .loading f.comp.iter id v } hpn]
+      exact ⟨q, hq, hqprov⟩
+  · rcases hvp m g hg hinst_m k p hvm with ⟨q, hq, hqprov⟩
+    by_cases hpn : p = n
+    · subst p
+      have hq_f : q = f := Option.some.inj (hq.symm.trans hf)
+      have hk_f_prov : k ∈ f.comp.prov := by rw [hq_f] at hqprov; exact hqprov
+      exact ⟨{ f with lc := .loading f.comp.iter id v }, by simp, by simpa using hk_f_prov⟩
+    · rw [lookup_set_ne r n p { f with lc := .loading f.comp.iter id v } hpn]
+      exact ⟨q, hq, hqprov⟩
+
+/-- `viewProv` is preserved by `L-Unload`. -/
+theorem viewProv_lUnload (hvp : ViewProv r) {n : N} {f : Fiber N K V E}
+    {o : Option E} (_hf : lookup r n = some f) (hg : ¬ relied r n) :
+    ViewProv (set r n { f with lc := .inactive o }) := by
+  intro m g hm hinst_m k p hvm
+  rcases lookup_set_cases hm with ⟨hmn, hg'⟩ | ⟨hmn, hg'⟩
+  · subst m; subst g
+    cases hinst_m
+  · rcases hvp m g hg' hinst_m k p hvm with ⟨q, hq, hqprov⟩
+    have hpn : p ≠ n := by
+      intro heq; subst p
+      exact hg ⟨m, k, g, hg', hmn, hinst_m, hvm⟩
+    rw [lookup_set_ne r n p { f with lc := .inactive o } hpn]
+    exact ⟨q, hq, hqprov⟩
+
+/-! ## Preservation of the confinement invariants under all rules -/
+
+/-- `viewSpec` is preserved by every rule. -/
+theorem viewSpec_preserved (hvs : ViewSpec r) {r' : Registry N K V E}
+    (hstep : Ostep r r' ∨ Lstep r r') : ViewSpec r' := by
+  rcases hstep with h | h
+  · cases h with
+    | oInsert n c p hn hp hdisj =>
+        exact viewSpec_setFresh hvs rfl
+    | oRetire n f hf =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro h; exact h) (by intro k; rfl)
+    | oRemove n f o hf hl hchild =>
+        exact viewSpec_del hvs
+  · cases h with
+    | lBegin n f v hf hl ht =>
+        exact viewSpec_lBegin hvs hf ht
+    | lIter n f ι κ v ι' δ hinv hf hl ht hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lFinish n f ι κ v δ hinv hf hl ht hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lRaise n f ι κ v e hf hl hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertAbort n f ι κ v hf hl ht =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertLand n f ι κ v δ hinv c hf hl ht hstep =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lLeave n f κ v hf hl ht =>
+        exact viewSpec_set_viewSame hvs hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lUnload n f κ v o hf hl hg =>
+        exact viewSpec_lUnload hvs hf
+
+/-- `tableProv` is preserved by every rule. -/
+theorem tableProv_preserved (htp : TableProv r) {r' : Registry N K V E}
+    (hstep : Ostep r r' ∨ Lstep r r') : TableProv r' := by
+  rcases hstep with h | h
+  · cases h with
+    | oInsert n c p hn hp hdisj =>
+        exact tableProv_setFresh htp (by intro k; rfl)
+    | oRetire n f hf =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | oRemove n f o hf hl hchild =>
+        exact tableProv_del htp
+  · cases h with
+    | lBegin n f v hf hl ht =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lIter n f ι κ v ι' δ hinv hf hl ht hstep =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lFinish n f ι κ v δ hinv hf hl ht hstep =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lRaise n f ι κ v e hf hl hstep =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lDivertAbort n f ι κ v hf hl ht =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lDivertLand n f ι κ v δ hinv c hf hl ht hstep =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lLeave n f κ v hf hl ht =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+    | lUnload n f κ v o hf hl hg =>
+        exact tableProv_set_viewSame htp hf rfl (by intro k; rfl)
+
+/-- `viewProv` is preserved by every rule. -/
+theorem viewProv_preserved (hwf : WellFormed r) (hvs : ViewSpec r)
+    (hvp : ViewProv r) (htp : TableProv r) {r' : Registry N K V E}
+    (hstep : Ostep r r' ∨ Lstep r r') : ViewProv r' := by
+  rcases hstep with h | h
+  · cases h with
+    | oInsert n c p hn hp hdisj =>
+        exact viewProv_setFresh hvp hn rfl
+    | oRetire n f hf =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro h; exact h) (by intro k; rfl)
+    | oRemove n f o hf hl hchild =>
+        exact viewProv_del hwf hvs hvp hf hl
+  · cases h with
+    | lBegin n f v hf hl ht =>
+        exact viewProv_lBegin hwf.nodupKeys htp hvp hf hl ht
+    | lIter n f ι κ v ι' δ hinv hf hl ht hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lFinish n f ι κ v δ hinv hf hl ht hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lRaise n f ι κ v e hf hl hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertAbort n f ι κ v hf hl ht =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lDivertLand n f ι κ v δ hinv c hf hl ht hstep =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lLeave n f κ v hf hl ht =>
+        exact viewProv_set_viewSame hvp hf rfl (by intro _; rw [hl]; trivial) (by intro k; rw [hl]; rfl)
+    | lUnload n f κ v o hf hl hg =>
+        exact viewProv_lUnload hvp hf hg
+
+/-- **Theorem 59 for the confinement invariants.**  `ConfinedWellFormed`
+is preserved by every rule. -/
+theorem ConfinedWellFormed.preserved {r r' : Registry N K V E}
+    (h : ConfinedWellFormed r) (hstep : Ostep r r' ∨ Lstep r r') :
+    ConfinedWellFormed r' := by
+  constructor
+  · exact WellFormed.preserved h.wf hstep
+  · exact viewSpec_preserved h.viewSpec hstep
+  · exact tableProv_preserved h.tableProv hstep
+  · exact viewProv_preserved h.wf h.viewSpec h.viewProv h.tableProv hstep
+
+/-- `ConfinedWellFormed` is preserved along finite traces. -/
+theorem ConfinedWellFormed.trace_preserved {r r' : Registry N K V E}
+    (h : ConfinedWellFormed r) (ht : Trace r r') : ConfinedWellFormed r' := by
+  induction ht with
+  | nil => exact h
+  | cons hstep _ ih =>
+      exact ih (ConfinedWellFormed.preserved h hstep)
+
 end Full
 
 end Cordix
