@@ -1138,6 +1138,138 @@ theorem exists_lstep_or_guarded {r : Registry N K V E} (h : ¬ quiet r) :
       · exact .inl ⟨_, Lstep.lUnload r n f κ v o hf hlc hg⟩
 
 
+/-! ## Full progress under acyclicity and view-provider invariants -/
+
+/-- A loading fiber always has a lifecycle step. -/
+theorem exists_lstep_of_loading {r : Registry N K V E} {m : N} {g : Fiber N K V E}
+    {ι : Iterator (CoefCtx K V) E} {κ : CoefCtx K V → CoefCtx K V}
+    {v : K → Option N} (hg : lookup r m = some g) (hlc : g.lc = .loading ι κ v) :
+    ∃ r', Lstep r r' := by
+  by_cases ht : targetOf r m = some v
+  · cases hstep : Iterator.step ι (sigmaOf r) with
+    | error e => exact ⟨_, Lstep.lRaise r m g ι κ v e hg hlc hstep⟩
+    | ok res =>
+        rcases res with ⟨δ, h, c⟩
+        cases c with
+        | none => exact ⟨_, Lstep.lFinish r m g ι κ v δ h hg hlc ht hstep⟩
+        | some ι' => exact ⟨_, Lstep.lIter r m g ι κ v ι' δ h hg hlc ht hstep⟩
+  · exact ⟨_, Lstep.lDivertAbort r m g ι κ v hg hlc ht⟩
+
+/-- An active fiber whose target equals its committed view cannot have a
+committed view naming a fiber that is unloading: the provider of the key
+would have to be both active and unloading. -/
+theorem active_view_unload_false {r : Registry N K V E} (hwf : WellFormed r)
+    (hviewSpec : ∀ n f, lookup r n = some f → f.lc.installed →
+      ∀ k, f.lc.viewOf k ≠ none → k ∈ f.comp.spec)
+    {m : N} {g : Fiber N K V E} {κg : CoefCtx K V → CoefCtx K V}
+    {vg : K → Option N} {k : K} {n : N}
+    (hg : lookup r m = some g) (hlc : g.lc = .active κg vg)
+    (ht : targetOf r m = some vg) (hvm : g.lc.viewOf k = some n)
+    {f : Fiber N K V E} (hlook_n : lookup r n = some f)
+    (hlc_n : f.lc = .unloading κ v o) : False := by
+  have hvm' : vg k = some n := by
+    rw [hlc] at hvm
+    simpa [Lifecycle.viewOf] using hvm
+  have hk_spec : k ∈ g.comp.spec := hviewSpec m g hg (by rw [hlc]; trivial) k (by
+    intro hnone
+    have hnone' : vg k = none := by
+      rw [hlc] at hnone
+      simpa [Lifecycle.viewOf] using hnone
+    rw [hnone'] at hvm'
+    simp at hvm')
+  have htv : vg k = providerOf r k := targetOf_view_eq hg ht k hk_spec
+  have hprov : providerOf r k = some n := by
+    rw [htv] at hvm'
+    exact hvm'
+  rcases providerOf_some_lookup_active hwf.nodupKeys hprov with ⟨gn, hgn, κn, vn, hlc_gn⟩
+  have hgn_f : gn = f := Option.some.inj (hgn.symm.trans hlook_n)
+  rw [hgn_f] at hlc_gn
+  rw [hlc_gn] at hlc_n
+  cases hlc_n
+
+/-- From a guarded unloading fiber, another guarded unloading fiber is
+reached, and precedence strictly increases. -/
+theorem next_guarded_of_guarded {r : Registry N K V E} (hwf : WellFormed r)
+    (hviewSpec : ∀ n f, lookup r n = some f → f.lc.installed →
+      ∀ k, f.lc.viewOf k ≠ none → k ∈ f.comp.spec)
+    (hviewProv : ∀ n f, lookup r n = some f → f.lc.installed →
+      ∀ k m, f.lc.viewOf k = some m →
+      ∃ g, lookup r m = some g ∧ k ∈ g.comp.prov)
+    (hno : ¬ ∃ r', Lstep r r')
+    {n : N} {f : Fiber N K V E} {κ : CoefCtx K V → CoefCtx K V}
+    {v : K → Option N} {o : Option E}
+    (hlook_n : lookup r n = some f) (hlc_n : f.lc = .unloading κ v o)
+    (hrel : relied r n) :
+    ∃ m g κ' v' o', lookup r m = some g ∧ g.lc = .unloading κ' v' o'
+      ∧ relied r m ∧ Precedes r n m := by
+  rcases hrel with ⟨m, k, g, hg, hmn, hinst_m, hv_mk⟩
+  have hk_spec : k ∈ g.comp.spec :=
+    hviewSpec m g hg hinst_m k (by
+      intro hnone
+      rw [hnone] at hv_mk
+      simp at hv_mk)
+  cases hlc_m : g.lc with
+  | inactive _ =>
+      exfalso
+      rw [hlc_m] at hinst_m
+      cases hinst_m
+  | loading _ _ _ =>
+      exfalso
+      exact hno (exists_lstep_of_loading hg hlc_m)
+  | active κg vg =>
+      by_cases ht : targetOf r m = some vg
+      · exfalso
+        exact active_view_unload_false hwf hviewSpec hg hlc_m ht hv_mk hlook_n hlc_n
+      · exfalso
+        exact hno ⟨_, Lstep.lLeave r m g κg vg hg hlc_m ht⟩
+  | unloading κg vg og =>
+      by_cases hrel_m : relied r m
+      · refine ⟨m, g, κg, vg, og, hg, hlc_m, hrel_m, ?_⟩
+        rcases hviewProv m g hg hinst_m k n hv_mk with ⟨gn, hgn, hk_prov⟩
+        have hgn_f : gn = f := Option.some.inj (hgn.symm.trans hlook_n)
+        have hk_prov_f : k ∈ f.comp.prov := by
+          rw [hgn_f] at hk_prov
+          exact hk_prov
+        exact ⟨f, g, hlook_n, hg, k, hk_prov_f, hk_spec⟩
+      · exfalso
+        exact hno ⟨_, Lstep.lUnload r m g κg vg og hg hlc_m hrel_m⟩
+
+/-- Under acyclicity, the guarded-unload disjunct is impossible. -/
+theorem no_guarded_unload_of_acyclic {r : Registry N K V E} (hwf : WellFormed r) (hacyc : Acyclic r)
+    (hviewSpec : ∀ n f, lookup r n = some f → f.lc.installed →
+      ∀ k, f.lc.viewOf k ≠ none → k ∈ f.comp.spec)
+    (hviewProv : ∀ n f, lookup r n = some f → f.lc.installed →
+      ∀ k m, f.lc.viewOf k = some m →
+      ∃ g, lookup r m = some g ∧ k ∈ g.comp.prov)
+    (hno : ¬ ∃ r', Lstep r r') :
+    ∀ n f κ v o, lookup r n = some f → f.lc = .unloading κ v o → ¬ relied r n := by
+  intro n
+  refine @WellFounded.induction N (fun a b : N => Precedes r b a) hacyc
+    (fun n => ∀ f κ v o, lookup r n = some f → f.lc = .unloading κ v o → ¬ relied r n) n ?_
+  intro x ih f κ v o hlook_n hlc_n hrel
+  rcases next_guarded_of_guarded hwf hviewSpec hviewProv hno hlook_n hlc_n hrel
+    with ⟨m, g, κ', v', o', hg, hlc_m, hrel_m, hprec⟩
+  have hprecR : (fun a b => Precedes r b a) m x := hprec
+  have hC_m := ih m hprecR g κ' v' o' hg hlc_m
+  exact hC_m hrel_m
+
+/-- **Theorem 66, clause 1 (full calculus), conditional on the two
+view-provider invariants that confinement (Definition 48) supplies.**  A
+non-quiescent, well-formed, acyclic state admits a lifecycle step. -/
+theorem exists_lstep_of_not_quiet_of_acyclic {r : Registry N K V E} (hwf : WellFormed r) (hacyc : Acyclic r)
+    (hviewSpec : ∀ n f, lookup r n = some f → f.lc.installed →
+      ∀ k, f.lc.viewOf k ≠ none → k ∈ f.comp.spec)
+    (hviewProv : ∀ n f, lookup r n = some f → f.lc.installed →
+      ∀ k m, f.lc.viewOf k = some m →
+      ∃ g, lookup r m = some g ∧ k ∈ g.comp.prov)
+    (h : ¬ quiet r) : ∃ r', Lstep r r' := by
+  apply Classical.byContradiction
+  intro hno
+  rcases exists_lstep_or_guarded h with hstep | hguard
+  · exact hno hstep
+  · rcases hguard with ⟨n, f, κ, v, o, hf, hl, hr⟩
+    exact (no_guarded_unload_of_acyclic hwf hacyc hviewSpec hviewProv hno n f κ v o hf hl) hr
+
 end Full
 
 end Cordix
