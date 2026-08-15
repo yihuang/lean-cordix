@@ -360,6 +360,13 @@ def kind : Step s → StepKind
   | lLeave .. => StepKind.lLeave
   | lUnload .. => StepKind.lUnload
 
+/-- The only observation through which a step can mention a name other
+than the one it acts on: the parent premise of `O-Insert`.  This predicate
+records that the parent does not mention `n`. -/
+def avoidsInsertParent : Step s → N → Prop
+  | oInsert n c p hn hp hdisj, m => m ∉ p
+  | _, _ => True
+
 /-- The state map `Ψ` of Definition 53.  At `L-Iter`, `L-Finish`, and a
 landing `L-Divert` it writes the new table produced by the iteration; at
 `L-Unload` it applies the fiber's accumulator to the ambient context; at
@@ -447,6 +454,311 @@ theorem regStep (st : Step s) :
   | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep => simp [next, edit, psi, hf, set_set_eq]; exact Or.inr (LstepT.lDivertLand s.reg n f ι κ v δ h c hreach hf hl ht hstep)
   | lLeave n f κ v hf hl ht => simp [next, edit, psi, hf]; exact Or.inr (LstepT.lLeave s.reg n f κ v hf hl ht)
   | lUnload n f κ v o hf hl hg => simp [next, edit, psi, hf]; exact Or.inr (LstepT.lUnload s.reg n f κ v o hf hl hg)
+
+/-! ## Lemma 57, first half: deleting a vestigial entry -/
+
+/-- **Lemma 57(1), applicability half.**  If `n` is vestigial at `s`, then
+any step acting on another name remains applicable after `n` is deleted;
+for `O-Insert` the usual extra parent/fresh-name caveat is expressed by
+`avoidsInsertParent`.  The transported step has the same name and rule. -/
+theorem step_del_of_vestigial {s : State N K E V} {n m : N}
+    (h : Vestigial s n) (hm : m ≠ n)
+    (st : Step s) (hname : st.name = m) (havoid : Step.avoidsInsertParent st n) :
+    ∃ st' : Step (State.del s n), st'.name = m ∧ st'.kind = st.kind := by
+  cases st with
+  | oInsert a c p hn hp hdisj =>
+      subst m
+      have ha : a ≠ n := by
+        intro hEq; subst a; exact hm rfl
+      have hlookD : lookup (State.del s n).reg a = none := by
+        simp [State.del]
+        rw [lookup_del_ne]
+        exact hn
+        exact ha
+      have hpD : ∀ n' ∈ p, ∃ f, lookup (State.del s n).reg n' = some f := by
+        intro n' hn'p
+        rcases hp n' hn'p with ⟨f, hf⟩
+        have hn' : n' ≠ n := by
+          intro hEq; subst n'
+          exact havoid hn'p
+        refine ⟨f, ?_⟩
+        simp [State.del]
+        rw [lookup_del_ne]
+        exact hf
+        exact hn'
+      have hdisjD : ∀ n' f, lookup (State.del s n).reg n' = some f →
+          (∀ k ∈ c.prov, ∀ k' ∈ f.comp.prov, k ≠ k') := by
+        intro n' f hlook
+        by_cases hn' : n' = n
+        · subst n'
+          simp [State.del] at hlook
+        · have hlookR : lookup s.reg n' = some f := by
+            simpa [State.del] using (lookup_del_cases (n := n) hlook).2
+          exact hdisj n' f hlookR
+      exact ⟨Step.oInsert (s := State.del s n) a c p hlookD hpD hdisjD, rfl, rfl⟩
+  | oRetire a f hf =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]
+        rw [lookup_del_ne]
+        exact hf
+        exact ha
+      exact ⟨Step.oRetire (s := State.del s n) a f hfD, rfl, rfl⟩
+  | oRemove a f o hf hl hchild =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]
+        rw [lookup_del_ne]
+        exact hf
+        exact ha
+      have hchildD : ∀ n' f', lookup (State.del s n).reg n' = some f' → f'.parent ≠ some a := by
+        intro n' f' hlook
+        by_cases hn' : n' = n
+        · subst n'; simp [State.del] at hlook
+        · have hlookR : lookup s.reg n' = some f' := by
+            simpa [State.del] using (lookup_del_cases (n := n) hlook).2
+          exact hchild n' f' hlookR
+      exact ⟨Step.oRemove (s := State.del s n) a f o hfD hl hchildD, rfl, rfl⟩
+  | lBegin a f v hf hl ht =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]
+        rw [lookup_del_ne]
+        exact hf
+        exact ha
+      have htD : targetOf (State.del s n).reg a = some v := by
+        simpa [State.del, targetOf_del_eq_of_vestigial h ha] using ht
+      exact ⟨Step.lBegin (s := State.del s n) a f v hfD hl htD, rfl, rfl⟩
+  | lIter a f ι κ v ι' δ hinv hreach hf hl ht hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]
+        rw [lookup_del_ne]
+        exact hf
+        exact ha
+      have htD : targetOf (State.del s n).reg a = some v := by
+        simpa [State.del, targetOf_del_eq_of_vestigial h ha] using ht
+      have hstepD : Cordix.Iterator.step ι (sigmaOf (State.del s n).reg) = Except.ok (δ, hinv, some ι') := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lIter (s := State.del s n) a f ι κ v ι' δ hinv hreach hfD hl htD hstepD, rfl, rfl⟩
+  | lFinish a f ι κ v δ hinv hreach hf hl ht hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]; rw [lookup_del_ne]; exact hf; exact ha
+      have htD : targetOf (State.del s n).reg a = some v := by
+        simpa [State.del, targetOf_del_eq_of_vestigial h ha] using ht
+      have hstepD : Cordix.Iterator.step ι (sigmaOf (State.del s n).reg) = Except.ok (δ, hinv, none) := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lFinish (s := State.del s n) a f ι κ v δ hinv hreach hfD hl htD hstepD, rfl, rfl⟩
+  | lRaise a f ι κ v e hreach hf hl hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]; rw [lookup_del_ne]; exact hf; exact ha
+      have hstepD : Cordix.Iterator.step ι (sigmaOf (State.del s n).reg) = Except.error e := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lRaise (s := State.del s n) a f ι κ v e hreach hfD hl hstepD, rfl, rfl⟩
+  | lDivertAbort a f ι κ v hreach hf hl ht =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]; rw [lookup_del_ne]; exact hf; exact ha
+      have htD : targetOf (State.del s n).reg a ≠ some v := by
+        intro hbad
+        have ht' : targetOf s.reg a = some v := by
+          simpa [State.del, targetOf_del_eq_of_vestigial h ha] using hbad
+        exact ht ht'
+      exact ⟨Step.lDivertAbort (s := State.del s n) a f ι κ v hreach hfD hl htD, rfl, rfl⟩
+  | lDivertLand a f ι κ v δ hinv c hreach hf hl ht hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]; rw [lookup_del_ne]; exact hf; exact ha
+      have htD : targetOf (State.del s n).reg a ≠ some v := by
+        intro hbad
+        have ht' : targetOf s.reg a = some v := by
+          simpa [State.del, targetOf_del_eq_of_vestigial h ha] using hbad
+        exact ht ht'
+      have hstepD : Cordix.Iterator.step ι (sigmaOf (State.del s n).reg) = Except.ok (δ, hinv, c) := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lDivertLand (s := State.del s n) a f ι κ v δ hinv c hreach hfD hl htD hstepD, rfl, rfl⟩
+  | lLeave a f κ v hf hl ht =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]; rw [lookup_del_ne]; exact hf; exact ha
+      have htD : targetOf (State.del s n).reg a ≠ some v := by
+        intro hbad
+        have ht' : targetOf s.reg a = some v := by
+          simpa [State.del, targetOf_del_eq_of_vestigial h ha] using hbad
+        exact ht ht'
+      exact ⟨Step.lLeave (s := State.del s n) a f κ v hfD hl htD, rfl, rfl⟩
+  | lUnload a f κ v o hf hl hg =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfD : lookup (State.del s n).reg a = some f := by
+        simp [State.del]; rw [lookup_del_ne]; exact hf; exact ha
+      have hgD : ¬ relied (State.del s n).reg a := by
+        intro hbad
+        have hg' : relied s.reg a := (relied_del_eq_of_vestigial h ha).mp (by simpa [State.del] using hbad)
+        exact hg hg'
+      exact ⟨Step.lUnload (s := State.del s n) a f κ v o hfD hl hgD, rfl, rfl⟩
+
+/-- The ways a step at `s.del n` cannot be lifted back to `s`: an
+`O-Insert` drawing the vestigial name or claiming a key of its provision,
+or an `O-Remove` whose no-child premise would have to inspect the deleted
+vestigial entry. -/
+def InsertConflict (s : State N K E V) (n : N) : Step (State.del s n) → Prop
+  | Step.oInsert a c p hn hp hdisj =>
+      a = n ∨ ∃ f : Fiber N K V E, lookup s.reg n = some f
+          ∧ ∃ k : K, k ∈ c.prov ∧ k ∈ f.comp.prov
+  | Step.oRemove a f o hf hl hchild =>
+      ∃ fv : Fiber N K V E, lookup s.reg n = some fv ∧ fv.parent = some a
+  | _ => False
+
+/-- **Lemma 57(2), lifting half.**  A step at `s.del n` acting on another
+name lifts back to `s`, except for the `O-Insert`/`O-Remove` conflicts
+recorded by `InsertConflict`. -/
+theorem step_of_del_vestigial {s : State N K E V} {n m : N}
+    (h : Vestigial s n) (hm : m ≠ n)
+    (st : Step (State.del s n)) (hname : st.name = m)
+    (hno : ¬ InsertConflict s n st) :
+    ∃ st' : Step s, st'.name = m ∧ st'.kind = st.kind := by
+  cases st with
+  | oInsert a c p hn hp hdisj =>
+      subst m
+      have ha : a ≠ n := by
+        intro hEq
+        exact hno (Or.inl hEq)
+      have hlookR : lookup s.reg a = none := by
+        have hd := lookup_del_ne s.reg n a ha
+        simp [State.del] at hn
+        rw [hd] at hn
+        exact hn
+      have hpR : ∀ n' ∈ p, ∃ f, lookup s.reg n' = some f := by
+        intro n' hn'p
+        rcases hp n' hn'p with ⟨f, hf⟩
+        have hn' : n' ≠ n := by
+          intro hEq; subst n'
+          simp [State.del] at hf
+        refine ⟨f, ?_⟩
+        exact (lookup_del_cases (n := n) hf).2
+      have hdisjR : ∀ n' f, lookup s.reg n' = some f →
+          (∀ k ∈ c.prov, ∀ k' ∈ f.comp.prov, k ≠ k') := by
+        intro n' f hlook k hk k' hk'
+        by_cases hn' : n' = n
+        · subst n'
+          intro hEq
+          exact hno (Or.inr ⟨f, hlook, ⟨k, hk, by simpa [hEq] using hk'⟩⟩)
+        · have hlookD : lookup (State.del s n).reg n' = some f := by
+            simp [State.del]
+            rw [lookup_del_ne]
+            exact hlook
+            exact hn'
+          exact hdisj n' f hlookD k hk k' hk'
+      exact ⟨Step.oInsert (s := s) a c p hlookR hpR hdisjR, rfl, rfl⟩
+  | oRetire a f hf =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by
+        exact (lookup_del_cases (n := n) hf).2
+      exact ⟨Step.oRetire (s := s) a f hfR, rfl, rfl⟩
+  | oRemove a f o hf hl hchild =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by
+        exact (lookup_del_cases (n := n) hf).2
+      simp [InsertConflict] at hno
+      have hchildR : ∀ n' f', lookup s.reg n' = some f' → f'.parent ≠ some a := by
+        intro n' f' hlook
+        by_cases hn' : n' = n
+        · subst n'
+          intro hparent
+          exact hno f' hlook hparent
+        · have hlookD : lookup (State.del s n).reg n' = some f' := by
+            simp [State.del]; rw [lookup_del_ne]; exact hlook; exact hn'
+          exact hchild n' f' hlookD
+      exact ⟨Step.oRemove (s := s) a f o hfR hl hchildR, rfl, rfl⟩
+  | lBegin a f v hf hl ht =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by
+        exact (lookup_del_cases (n := n) hf).2
+      have htR : targetOf s.reg a = some v := by
+        simpa [State.del, targetOf_del_eq_of_vestigial h ha] using ht
+      exact ⟨Step.lBegin (s := s) a f v hfR hl htR, rfl, rfl⟩
+  | lIter a f ι κ v ι' δ hinv hreach hf hl ht hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by exact (lookup_del_cases (n := n) hf).2
+      have htR : targetOf s.reg a = some v := by
+        simpa [State.del, targetOf_del_eq_of_vestigial h ha] using ht
+      have hstepR : Cordix.Iterator.step ι (sigmaOf s.reg) = Except.ok (δ, hinv, some ι') := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lIter (s := s) a f ι κ v ι' δ hinv hreach hfR hl htR hstepR, rfl, rfl⟩
+  | lFinish a f ι κ v δ hinv hreach hf hl ht hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by exact (lookup_del_cases (n := n) hf).2
+      have htR : targetOf s.reg a = some v := by
+        simpa [State.del, targetOf_del_eq_of_vestigial h ha] using ht
+      have hstepR : Cordix.Iterator.step ι (sigmaOf s.reg) = Except.ok (δ, hinv, none) := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lFinish (s := s) a f ι κ v δ hinv hreach hfR hl htR hstepR, rfl, rfl⟩
+  | lRaise a f ι κ v e hreach hf hl hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by exact (lookup_del_cases (n := n) hf).2
+      have hstepR : Cordix.Iterator.step ι (sigmaOf s.reg) = Except.error e := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lRaise (s := s) a f ι κ v e hreach hfR hl hstepR, rfl, rfl⟩
+  | lDivertAbort a f ι κ v hreach hf hl ht =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by exact (lookup_del_cases (n := n) hf).2
+      have htR : targetOf s.reg a ≠ some v := by
+        intro hbad
+        have hbadD : targetOf (State.del s n).reg a = some v := by
+          simpa [State.del, targetOf_del_eq_of_vestigial h ha] using hbad
+        exact ht hbadD
+      exact ⟨Step.lDivertAbort (s := s) a f ι κ v hreach hfR hl htR, rfl, rfl⟩
+  | lDivertLand a f ι κ v δ hinv c hreach hf hl ht hstep =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by exact (lookup_del_cases (n := n) hf).2
+      have htR : targetOf s.reg a ≠ some v := by
+        intro hbad
+        have hbadD : targetOf (State.del s n).reg a = some v := by
+          simpa [State.del, targetOf_del_eq_of_vestigial h ha] using hbad
+        exact ht hbadD
+      have hstepR : Cordix.Iterator.step ι (sigmaOf s.reg) = Except.ok (δ, hinv, c) := by
+        simpa [State.del, sigmaOf_del_eq_of_vestigial h] using hstep
+      exact ⟨Step.lDivertLand (s := s) a f ι κ v δ hinv c hreach hfR hl htR hstepR, rfl, rfl⟩
+  | lLeave a f κ v hf hl ht =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by exact (lookup_del_cases (n := n) hf).2
+      have htR : targetOf s.reg a ≠ some v := by
+        intro hbad
+        have hbadD : targetOf (State.del s n).reg a = some v := by
+          simpa [State.del, targetOf_del_eq_of_vestigial h ha] using hbad
+        exact ht hbadD
+      exact ⟨Step.lLeave (s := s) a f κ v hfR hl htR, rfl, rfl⟩
+  | lUnload a f κ v o hf hl hg =>
+      subst m
+      have ha : a ≠ n := by intro hEq; subst a; exact hm rfl
+      have hfR : lookup s.reg a = some f := by exact (lookup_del_cases (n := n) hf).2
+      have hgR : ¬ relied s.reg a := by
+        intro hbad
+        have hbadD : relied (State.del s n).reg a := by
+          exact (relied_del_eq_of_vestigial h ha).mpr (by simpa [State.del] using hbad)
+        exact hg hbadD
+      exact ⟨Step.lUnload (s := s) a f κ v o hfR hl hgR, rfl, rfl⟩
 
 /- Lemma 54 -/
 
