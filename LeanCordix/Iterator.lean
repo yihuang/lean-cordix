@@ -112,6 +112,13 @@ iterator rather than one step. -/
 def WitnessedAll (ι : Iterator Γ E) : Prop :=
   ∀ {ι'}, Reachable ι ι' → Witnessed ι'
 
+/-- Reachability is transitive. -/
+theorem Reachable.trans {ι₁ ι₂ ι₃ : Iterator Γ E} (h₁ : Reachable ι₁ ι₂)
+    (h₂ : Reachable ι₂ ι₃) : Reachable ι₁ ι₃ := by
+  induction h₁ with
+  | self ι => exact h₂
+  | step hstep hR ih => exact Reachable.step hstep (ih h₂)
+
 /-- The one-step witness is part of the whole-iterator witness. -/
 theorem witnessed_of_witnessedAll {ι : Iterator Γ E} (w : WitnessedAll ι) : Witnessed ι :=
   w (Reachable.self ι)
