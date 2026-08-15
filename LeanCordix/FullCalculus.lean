@@ -431,6 +431,63 @@ inductive Lstep : Registry N K V E → Registry N K V E → Prop
       (hg : ¬ relied r n) :
       Lstep r (set r n { f with lc := .inactive o })
 
+/-! ## The table-aware lifecycle relation `LstepT` -/
+
+/-- The table-aware lifecycle steps.  They refine `Lstep` by applying the
+state map of the rule to the acting fiber's table: `L-Iter`, `L-Finish`,
+and a landing `L-Divert` write the new context `δ` produced by the
+iteration; the other rules leave the table unchanged. -/
+inductive LstepT : Registry N K V E → Registry N K V E → Prop
+  | lBegin (r : Registry N K V E) (n : N) (f : Fiber N K V E) (v : K → Option N)
+      (hf : lookup r n = some f) (hl : f.lc = .inactive none)
+      (ht : targetOf r n = some v) :
+      LstepT r (set r n { f with lc := .loading f.comp.iter id v })
+  | lIter (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+      (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
+      (v : K → Option N) (ι' : Iterator (CoefCtx K V) E)
+      (δ : CoefCtx K V) (h : CoefCtx K V → CoefCtx K V)
+      (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf r n = some v)
+      (hstep : Iterator.step ι (sigmaOf r) = .ok (δ, h, some ι')) :
+      LstepT r (set r n { f with table := δ, lc := .loading ι' (κ ∘ h) v })
+  | lFinish (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+      (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
+      (v : K → Option N) (δ : CoefCtx K V) (h : CoefCtx K V → CoefCtx K V)
+      (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf r n = some v)
+      (hstep : Iterator.step ι (sigmaOf r) = .ok (δ, h, none)) :
+      LstepT r (set r n { f with table := δ, lc := .active (κ ∘ h) v })
+  | lRaise (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+      (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
+      (v : K → Option N) (e : E)
+      (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
+      (hstep : Iterator.step ι (sigmaOf r) = .error e) :
+      LstepT r (set r n { f with lc := .unloading κ v (some e) })
+  | lDivertAbort (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+      (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
+      (v : K → Option N)
+      (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf r n ≠ some v) :
+      LstepT r (set r n { f with lc := .unloading κ v none })
+  | lDivertLand (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+      (ι : Iterator (CoefCtx K V) E) (κ : CoefCtx K V → CoefCtx K V)
+      (v : K → Option N) (δ : CoefCtx K V) (h : CoefCtx K V → CoefCtx K V)
+      (c : Option (Iterator (CoefCtx K V) E))
+      (hf : lookup r n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf r n ≠ some v)
+      (hstep : Iterator.step ι (sigmaOf r) = .ok (δ, h, c)) :
+      LstepT r (set r n { f with table := δ, lc := .unloading (κ ∘ h) v none })
+  | lLeave (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+      (κ : CoefCtx K V → CoefCtx K V) (v : K → Option N)
+      (hf : lookup r n = some f) (hl : f.lc = .active κ v)
+      (ht : targetOf r n ≠ some v) :
+      LstepT r (set r n { f with lc := .unloading κ v none })
+  | lUnload (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+      (κ : CoefCtx K V → CoefCtx K V) (v : K → Option N) (o : Option E)
+      (hf : lookup r n = some f) (hl : f.lc = .unloading κ v o)
+      (hg : ¬ relied r n) :
+      LstepT r (set r n { f with lc := .inactive o })
+
 /-! ## Basic consequences of the rules -/
 
 /-- **Theorem 63 (Eq. 58), full calculus.** A fiber begins a transition
