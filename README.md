@@ -39,7 +39,7 @@ All of the formalized definitions and the following results carry full proofs:
 * §4.3/4.4 — full ten-rule calculus with iterators and failure; full
   preservation of all four well-formedness clauses under all ten rules
   (Thm 59); full progress (Thm 66.1) under acyclicity of precedence plus
-  the two confinement-derived view-provider invariants.
+  the confinement-derived invariants packaged as `ConfinedWellFormed`.
 
 Left as future work: formalizing confinement (Def 48) and deriving the two
 view-provider invariants (`viewSpec` and `viewProv`) from it; the global
