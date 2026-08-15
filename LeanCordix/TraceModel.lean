@@ -2,6 +2,7 @@ import LeanCordix.FullCalculus
 
 set_option linter.unusedVariables false
 set_option linter.unusedSimpArgs false
+set_option linter.unusedSectionVars false
 
 /-
 # Cordix — Section 4.4: The trace-indexed model `edit ∘ Ψ`
@@ -61,6 +62,146 @@ def relied (s : State N K E V) (n : N) : Prop :=
   Full.relied s.reg n
 
 end State
+
+namespace State
+
+/-- Remove a name from a state. -/
+def del (s : State N K E V) (n : N) : State N K E V :=
+  ⟨Full.del s.reg n, s.ambient⟩
+
+end State
+
+/-- **Lemma 57.** A name is vestigial at `s` when its entry is retired,
+inactive with the trivial outcome, carries an empty table, and no committed
+view names it.  The second conjunct records the list-level reading used for
+deletion lemmas. -/
+def Vestigial (s : State N K E V) (n : N) : Prop :=
+  NodupKeys s.reg ∧
+    (∀ p ∈ s.reg, p.1 = n → ∃ o, p.2.lc = .inactive o) ∧
+    ∃ f : Fiber N K V E,
+      lookup s.reg n = some f ∧ f.retired = true ∧ f.lc = .inactive none
+        ∧ (∀ k, f.table k = none)
+        ∧ ∀ m g, lookup s.reg m = some g → ∀ k, g.lc.viewOf k ≠ some n
+
+/-- `lookup` records membership of the pair it found. -/
+theorem lookup_some_mem {r : Registry N K V E} {n : N} {f : Fiber N K V E}
+    (h : lookup r n = some f) : (n, f) ∈ r := by
+  induction r with
+  | nil => simp [lookup] at h
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · rw [lookup, if_pos hp] at h
+        have hpf : p.2 = f := Option.some.inj h
+        subst hpf
+        cases p with
+        | mk a b =>
+            rw [show (n, (a, b).snd) = (a, b) from Prod.ext hp.symm rfl]
+            exact List.Mem.head _
+      · rw [lookup, if_neg hp] at h
+        have hmem := ih h
+        simp [hmem]
+
+/-- An inactive head contributes nothing to `sigmaOf`. -/
+theorem sigmaOf_cons_inactive (p : N × Fiber N K V E) (rest : Registry N K V E)
+    (k : K) (o : Option E) (hlc : p.2.lc = .inactive o) :
+    sigmaOf (p :: rest) k = sigmaOf rest k := by
+  simp [sigmaOf, List.foldr, hlc]
+
+/-- `sigmaOf` is congruent in the tail of a cons. -/
+theorem sigmaOf_cons_congr_k (p : N × Fiber N K V E) {r r' : Registry N K V E}
+    (k : K) (hk : sigmaOf r k = sigmaOf r' k) :
+    sigmaOf (p :: r) k = sigmaOf (p :: r') k := by
+  simp [sigmaOf] at hk ⊢
+  cases hlc : p.2.lc <;> simp [hlc, hk]
+
+/-- Deleting entries that are all inactive does not change `sigmaOf`. -/
+theorem sigmaOf_del_eq_of_all_inactive (r : Registry N K V E) (n : N)
+    (hin : ∀ p ∈ r, p.1 = n → ∃ o, p.2.lc = .inactive o) :
+    sigmaOf (del r n) = sigmaOf r := by
+  funext k
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · rcases hin p (by simp) hp with ⟨o, hlc⟩
+        simp [del, hp]
+        rw [sigmaOf_cons_inactive p rest k o hlc]
+        exact ih (by intro q hq hqn; exact hin q (by simp [hq]) hqn)
+      · simp [del, hp]
+        exact sigmaOf_cons_congr_k p k (ih (by intro q hq hqn; exact hin q (by simp [hq]) hqn))
+
+/-- An inactive head contributes nothing to `providerOf`. -/
+theorem providerOf_cons_inactive (p : N × Fiber N K V E) (rest : Registry N K V E)
+    (k : K) (o : Option E) (hlc : p.2.lc = .inactive o) :
+    providerOf (p :: rest) k = providerOf rest k := by
+  simp [providerOf, List.foldr, hlc]
+
+/-- `providerOf` is congruent in the tail of a cons. -/
+theorem providerOf_cons_congr_k (p : N × Fiber N K V E) {r r' : Registry N K V E}
+    (k : K) (hk : providerOf r k = providerOf r' k) :
+    providerOf (p :: r) k = providerOf (p :: r') k := by
+  simp [providerOf] at hk ⊢
+  cases hlc : p.2.lc <;> simp [hlc, hk]
+
+/-- Deleting entries that are all inactive does not change `providerOf`. -/
+theorem providerOf_del_eq_of_all_inactive (r : Registry N K V E) (n : N)
+    (hin : ∀ p ∈ r, p.1 = n → ∃ o, p.2.lc = .inactive o) :
+    providerOf (del r n) = providerOf r := by
+  funext k
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · rcases hin p (by simp) hp with ⟨o, hlc⟩
+        simp [del, hp]
+        rw [providerOf_cons_inactive p rest k o hlc]
+        exact ih (by intro q hq hqn; exact hin q (by simp [hq]) hqn)
+      · simp [del, hp]
+        exact providerOf_cons_congr_k p k (ih (by intro q hq hqn; exact hin q (by simp [hq]) hqn))
+
+/-- Deleting a vestigial entry does not change `sigmaOf`. -/
+theorem sigmaOf_del_eq_of_vestigial {s : State N K E V} {n : N}
+    (h : Vestigial s n) : sigmaOf (del s.reg n) = sigmaOf s.reg :=
+  sigmaOf_del_eq_of_all_inactive s.reg n h.2.1
+
+/-- Deleting a vestigial entry does not change `providerOf`. -/
+theorem providerOf_del_eq_of_vestigial {s : State N K E V} {n : N}
+    (h : Vestigial s n) : providerOf (del s.reg n) = providerOf s.reg :=
+  providerOf_del_eq_of_all_inactive s.reg n h.2.1
+
+/-- Deleting a vestigial entry does not change the target view of any other
+name. -/
+theorem targetOf_del_eq_of_vestigial {s : State N K E V} {n m : N}
+    (h : Vestigial s n) (hm : m ≠ n) :
+    targetOf (del s.reg n) m = targetOf s.reg m := by
+  unfold targetOf
+  rw [lookup_del_ne s.reg n m hm]
+  have hsig := sigmaOf_del_eq_of_vestigial h
+  have hprov := providerOf_del_eq_of_vestigial h
+  simp [hsig, hprov]
+
+/-- Deleting a vestigial entry does not change the withdrawal guard of any
+other name. -/
+theorem relied_del_eq_of_vestigial {s : State N K E V} {n m : N}
+    (h : Vestigial s n) (hm : m ≠ n) :
+    relied (del s.reg n) m ↔ relied s.reg m := by
+  unfold relied
+  constructor
+  · rintro ⟨n', k, f, hlook, hne, hinst, hv⟩
+    have hc := lookup_del_cases (n := n) hlook
+    exact ⟨n', k, f, hc.2, hne, hinst, hv⟩
+  · rintro ⟨n', k, f, hlook, hne, hinst, hv⟩
+    have hn' : n' ≠ n := by
+      intro hEq; subst n'
+      have hmem := lookup_some_mem hlook
+      rcases h.2.1 (n, f) hmem rfl with ⟨o, hlc⟩
+      rw [hlc] at hinst
+      cases hinst
+    have hlookD : lookup (del s.reg n) n' = some f := by
+      rw [lookup_del_ne]
+      exact hlook
+      exact hn'
+    exact ⟨n', k, f, hlookD, hne, hinst, hv⟩
 
 /-- The ten rule names, as data. -/
 inductive StepKind
@@ -541,6 +682,31 @@ theorem psi_reg_eq_of_not_writesTable (st : Step s)
     ∀ x, (psi st x).reg = x.reg := by
   cases st <;> simp [psi, Step.kind, StepKind.writesTable] at h ⊢
 
+
+
+/-! ## Type-level traces -/
+
+/-- A finite trace of `Step` records.  The `hnext` field ties each record
+to the state the following trace starts at. -/
+inductive StepTrace : State N K E V → State N K E V → Type (max 1 u) where
+  | nil (s : State N K E V) : StepTrace s s
+  | cons {s₁ s₂ s₃ : State N K E V} (st : Step s₁) (hnext : next st = s₂)
+      (ht : StepTrace s₂ s₃) : StepTrace s₁ s₃
+
+namespace StepTrace
+
+/-- **Theorem 59 along Type-level traces.**  Well-formedness is preserved
+by every finite `Step` trace. -/
+theorem wellFormed_preserved {s s' : State N K E V}
+    (h : WellFormed s.reg) (ht : StepTrace s s') : WellFormed s'.reg := by
+  induction ht with
+  | nil s => exact h
+  | @cons s₁ s₂ s₃ st hnext ht ih =>
+      exact ih (by
+        rw [← hnext]
+        exact WellFormed.preservedT h (Step.regStep st))
+
+end StepTrace
 
 end Step
 
