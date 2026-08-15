@@ -2172,6 +2172,62 @@ theorem exists_lstepT_of_not_quiet {r : Registry N K V E}
   rcases exists_lstep_of_not_quiet h.cwf hacyc hq with ⟨r', hstep⟩
   exact exists_lstepT_of_exists_lstep h hstep
 
+/-! ## Quiescence and table-aware progress: final capstone -/
+
+/-- **Quiescence is sound for the table-aware calculus.**  In a quiescent
+state no table-aware lifecycle rule applies. -/
+theorem no_lstepT_of_quiet {r : Registry N K V E} (hq : quiet r) :
+    ¬ ∃ r', LstepT r r' := by
+  rintro ⟨r', hstep⟩
+  cases hstep with
+  | lBegin n f v hf hl ht =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+      rw [hq'] at ht
+      simp at ht
+  | lIter n f ι κ v ι' δ hinv hreach hf hl ht hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lFinish n f ι κ v δ hinv hreach hf hl ht hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lRaise n f ι κ v e hreach hf hl hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lDivertAbort n f ι κ v hreach hf hl ht =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lDivertLand n f ι κ v δ hinv c hreach hf hl ht hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lLeave n f κ v hf hl ht =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+      exact ht hq'
+  | lUnload n f κ v o hf hl hg =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+
+/-- **Progress and quiescence for the table-aware calculus.**  Under
+acyclicity and table-confinement, a state is quiescent exactly when no
+table-aware lifecycle step is possible. -/
+theorem lstepT_iff_not_quiet {r : Registry N K V E}
+    (h : TableConfinedWellFormed r) (hacyc : Acyclic r) :
+    (∃ r', LstepT r r') ↔ ¬ quiet r := by
+  constructor
+  · intro ⟨r', hstep⟩ hq
+    exact no_lstepT_of_quiet hq ⟨r', hstep⟩
+  · intro hq
+    exact exists_lstepT_of_not_quiet h hacyc hq
+
 end Full
 
 end Cordix
