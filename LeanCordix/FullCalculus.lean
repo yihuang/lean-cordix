@@ -1294,6 +1294,50 @@ theorem exists_lstep_of_not_quiet {r : Registry N K V E} (hwf : ConfinedWellForm
     (hacyc : Acyclic r) (h : ¬ quiet r) : ∃ r', Lstep r r' :=
   exists_lstep_of_not_quiet_of_acyclic hwf.wf hacyc hwf.viewSpec hwf.viewProv h
 
+/-! ## Quiescence and the absence of lifecycle steps -/
+
+/-- **Quiescence is sound.**  In a quiescent state no lifecycle rule
+applies. -/
+theorem no_lstep_of_quiet {r : Registry N K V E} (hq : quiet r) :
+    ¬ ∃ r', Lstep r r' := by
+  rintro ⟨r', hstep⟩
+  cases hstep with
+  | lBegin n f v hf hl ht =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+      rw [hq'] at ht
+      simp at ht
+  | lIter n f ι κ v ι' δ h hf hl ht hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lFinish n f ι κ v δ h hf hl ht hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lRaise n f ι κ v e hf hl hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lDivertAbort n f ι κ v hf hl ht =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lDivertLand n f ι κ v δ h c hf hl ht hstep =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+  | lLeave n f κ v hf hl ht =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+      exact ht hq'
+  | lUnload n f κ v o hf hl hg =>
+      have hq' := hq n f hf
+      rw [hl] at hq'
+      simp at hq'
+
 end Full
 
 end Cordix
