@@ -21,6 +21,8 @@ whole system.
 | `LeanCordix.Coeffect` | §3.2 | The coeffect context `Σ = (k : K) ⇀ V_k`, `get`/`set`/restriction (Defs 22–23; `set` is a witnessed effect function), specifications, satisfaction, and `notify` (Defs 25–26), coeffects at a key (Def 24), isolation and interception (Defs 28–31). |
 | `LeanCordix.Context` | §3.3 | The unified context (Def 32), observational equivalence (Def 33), agreement on satisfaction/`notify` (reactivity is a property of `Σ/≃`), and distinct-key independence of `set` operations (Thm 40, core case). |
 | `LeanCordix.Calculus` | §4.1–4.2, 4.4 | Components, fibers, the registry and `Σ_γ` (Defs 43–45), target views & quiescence (Def 46), the withdrawal guard (Def 50), the five base-calculus rules, well-formedness (Def 58), **preservation** of clauses (1)–(2) (Thm 59), **ordering** first claim (Thm 63, Eq. 58), and **progress / no deadlock** for the base calculus (Thm 66.1). |
+| `LeanCordix.Iterator` | §4.3.2, 4.3.4 | Effect iterators with errors (Defs 51/52, Eq. 49), their witnessed step relation, the `Lifts` relation for complete successful runs, and the embedding of plain effects. |
+| `LeanCordix.FullCalculus` | §4.3–4.4 | The full ten-rule calculus: four-state lifecycle (Def 49), `L-Begin`, `L-Iter`, `L-Finish`, `L-Divert` (abort and landing), `L-Raise`, `L-Leave`, `L-Unload`, plus `O-Insert`/`O-Retire`/`O-Remove`. Defines full `WellFormed` (Def 58, all four clauses), proves **preservation of all four clauses under all ten rules** (Thm 59), and proves the explicit disjunction form of **progress** (Thm 66.1): a non-quiescent state either has a lifecycle step or a guarded unloading fiber. |
 
 ## Scope
 
@@ -34,13 +36,16 @@ All of the formalized definitions and the following results carry full proofs:
 * §4.2/4.4 — preservation (Thm 59) of clauses (1)–(2) under all five rules,
   the first ordering claim (Thm 63, Eq. 58), and no-deadlock progress
   (Thm 66, clause 1) for the base calculus.
+* §4.3/4.4 — full ten-rule calculus with iterators and failure; full
+  preservation of all four well-formedness clauses under all ten rules
+  (Thm 59); the explicit disjunction form of full progress (Thm 66.1).
 
-Left as future work (documented in `LeanCordix.Calculus`): the ten-rule
-calculus of §4.3 (effect iterators, the guarded withdrawal of Def 50,
-asynchrony, failure), the confinement discipline (Def 48), and the global
-metatheory built on those (§4.4.2–4.4.5: recovery exactness, resolution
-coherence, termination, confluence).  The paper notes that well-formedness
-clauses (3)–(4) and Theorem 63 (2)–(3) belong to the guarded calculus.
+Left as future work: the confinement discipline (Def 48) and the global
+metatheory that builds on it together with acyclicity of precedence
+(§4.4.2–4.4.5: recovery exactness, resolution coherence, termination,
+confluence).  The guarded-unload disjunct of the full progress theorem is
+not yet discharged by the acyclicity argument of Theorem 66; it requires
+the confinement invariant (dom σ_n ⊆ P_n) from Definition 48.
 
 ## Building
 

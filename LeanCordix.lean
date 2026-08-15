@@ -4,4 +4,6 @@ import LeanCordix.Basic
 import LeanCordix.Revertible
 import LeanCordix.Coeffect
 import LeanCordix.Context
+import LeanCordix.Iterator
 import LeanCordix.Calculus
+import LeanCordix.FullCalculus
