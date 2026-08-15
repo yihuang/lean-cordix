@@ -2066,6 +2066,76 @@ theorem Registry.TableConfined_preserved_lstepT (h : Registry.TableConfined r)
   | lLeave n f κ v hf hl ht => exact Registry.TableConfined_set_viewSame h hf rfl
   | lUnload n f κ v o hf hl hg => exact Registry.TableConfined_set_viewSame h hf rfl
 
+/-- `loadingReach` is preserved by table-aware lifecycle steps. -/
+theorem loadingReach_preserved_lstepT {r r' : Registry N K V E}
+    (h : ∀ n f ι κ v, lookup r n = some f → f.lc = .loading ι κ v →
+      Iterator.Reachable f.comp.iter ι)
+    (hstep : LstepT r r') :
+    ∀ n f ι κ v, lookup r' n = some f → f.lc = .loading ι κ v →
+      Iterator.Reachable f.comp.iter ι := by
+  intro m g ι κ v hm hlc
+  cases hstep with
+  | lBegin n f v₀ hf hl ht =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        injection hlc with hι hκ hv
+        rw [← hι]
+        exact Iterator.Reachable.self f.comp.iter
+      · exact h m g ι κ v hg hlc
+  | lIter n f ι₀ κ₀ v₀ ι' δ hinv hreach hf hl ht hstep =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        injection hlc with hι hκ hv
+        rw [← hι]
+        exact Iterator.Reachable.trans hreach (Iterator.Reachable.step hstep (Iterator.Reachable.self ι'))
+      · exact h m g ι κ v hg hlc
+  | lFinish n f ι₀ κ₀ v₀ δ hinv hreach hf hl ht hstep =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        cases hlc
+      · exact h m g ι κ v hg hlc
+  | lRaise n f ι₀ κ₀ v₀ e hreach hf hl hstep =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        cases hlc
+      · exact h m g ι κ v hg hlc
+  | lDivertAbort n f ι₀ κ₀ v₀ hreach hf hl ht =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        cases hlc
+      · exact h m g ι κ v hg hlc
+  | lDivertLand n f ι₀ κ₀ v₀ δ hinv c hreach hf hl ht hstep =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        cases hlc
+      · exact h m g ι κ v hg hlc
+  | lLeave n f κ₀ v₀ hf hl ht =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        cases hlc
+      · exact h m g ι κ v hg hlc
+  | lUnload n f κ₀ v₀ o hf hl hg =>
+      rcases lookup_set_cases hm with ⟨hmn, hg⟩ | ⟨hmn, hg⟩
+      · subst m; subst g
+        cases hlc
+      · exact h m g ι κ v hg hlc
+
+/-- The invariant package for the table-aware calculus. -/
+structure TableConfinedWellFormed (r : Registry N K V E) : Prop where
+  cwf : ConfinedWellFormed r
+  comp : Registry.TableConfined r
+  loadingReach : ∀ n f ι κ v, lookup r n = some f → f.lc = .loading ι κ v →
+    Iterator.Reachable f.comp.iter ι
+
+/-- `TableConfinedWellFormed` is preserved by table-aware lifecycle steps. -/
+theorem TableConfinedWellFormed.preserved_lstepT {r r' : Registry N K V E}
+    (h : TableConfinedWellFormed r) (hstep : LstepT r r') :
+    TableConfinedWellFormed r' := by
+  constructor
+  · exact ConfinedWellFormed.preservedT h.cwf h.comp (Or.inr hstep)
+  · exact Registry.TableConfined_preserved_lstepT h.comp hstep
+  · exact loadingReach_preserved_lstepT h.loadingReach hstep
+
 /-- Lifecycle-only traces of the table-aware calculus. -/
 inductive LTraceT : Registry N K V E → Registry N K V E → Prop
   | nil (r : Registry N K V E) : LTraceT r r
