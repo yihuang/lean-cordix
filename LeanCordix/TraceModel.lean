@@ -363,6 +363,19 @@ def kind : Step s → StepKind
   | lLeave .. => StepKind.lLeave
   | lUnload .. => StepKind.lUnload
 
+/-- Cast a step record along an equality of states. -/
+def cast {s s' : State N K E V} (h : s = s') (st : Step s) : Step s' := h ▸ st
+
+@[simp] theorem cast_name {s s' : State N K E V} (h : s = s') (st : Step s) :
+    (cast h st).name = st.name := by
+  subst h
+  rfl
+
+@[simp] theorem cast_kind {s s' : State N K E V} (h : s = s') (st : Step s) :
+    (cast h st).kind = st.kind := by
+  subst h
+  rfl
+
 /-- The only observation through which a step can mention a name other
 than the one it acts on: the parent premise of `O-Insert`.  This predicate
 records that the parent does not mention `n`. -/

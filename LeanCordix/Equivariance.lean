@@ -536,6 +536,32 @@ theorem step_rename {s : State N K E V} (e : NameEquiv N M) (st : Step s) :
         (Rename.fiber e.fwd f) κ (Rename.view e.fwd v) o hfD
         (by simp [Rename.fiber]; rw [hl]; rfl) hgD, rfl, rfl⟩
 
+
+/-- **Lemma 56, reverse half.**  A step at the forward-renamed state can
+be transported back to a step at the original state, acting on the inverse
+image of the acting name and with the same rule kind. -/
+theorem step_rename_bwd {s : State N K E V} (e : NameEquiv N M)
+    (st : Step (Rename.state e.fwd s)) :
+    ∃ st' : Step s, st'.name = e.bwd st.name ∧ st'.kind = st.kind := by
+  rcases step_rename e.symm st with ⟨st0, hname, hkind⟩
+  have hsymm : Rename.state e.symm.fwd (Rename.state e.fwd s) =
+      Rename.state e.bwd (Rename.state e.fwd s) := by
+    simp [NameEquiv.symm]
+  have hstate : Rename.state e.bwd (Rename.state e.fwd s) = s :=
+    Rename.state_comp e s
+  let st1 : Step s := Step.cast hstate (Step.cast hsymm st0)
+  have hname1 : st1.name = st0.name := by
+    show (Step.cast hstate (Step.cast hsymm st0)).name = st0.name
+    rw [Step.cast_name]
+    rw [Step.cast_name]
+  have hkind1 : st1.kind = st0.kind := by
+    show (Step.cast hstate (Step.cast hsymm st0)).kind = st0.kind
+    rw [Step.cast_kind]
+    rw [Step.cast_kind]
+  refine ⟨st1, ?_, ?_⟩
+  · exact hname1.trans (hname.trans (by simp [NameEquiv.symm]))
+  · exact hkind1.trans hkind
+
 end Full
 
 end Cordix
