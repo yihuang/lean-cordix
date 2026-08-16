@@ -92,6 +92,35 @@ theorem option_injective {φ : N → M} (hinj : Function.Injective φ) :
   cases a <;> cases b <;> simp [option] at h ⊢
   exact hinj h
 
+/-- `set` commutes with renaming. -/
+theorem set_rename (φ : N → M) (hinj : Function.Injective φ)
+    (r : Registry N K V E) (n : N) (f : Fiber N K V E) :
+    registry φ (set r n f) = set (registry φ r) (φ n) (fiber φ f) := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · simp [registry, set, hp]
+      · have hφ : φ p.1 ≠ φ n := by
+          intro hEq; exact hp (hinj hEq)
+        simp [registry, set, hp, hφ]
+        simpa [registry] using ih
+
+/-- `del` commutes with renaming. -/
+theorem del_rename (φ : N → M) (hinj : Function.Injective φ)
+    (r : Registry N K V E) (n : N) :
+    registry φ (del r n) = del (registry φ r) (φ n) := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · simp [registry, del, hp]
+        simpa [registry] using ih
+      · have hφ : φ p.1 ≠ φ n := by
+          intro hEq; exact hp (hinj hEq)
+        simp [registry, del, hp, hφ]
+        simpa [registry] using ih
+
 /-- `lookup` commutes with renaming. -/
 theorem lookup_rename (φ : N → M) (r : Registry N K V E) (n : N)
     (hinj : Function.Injective φ) :
