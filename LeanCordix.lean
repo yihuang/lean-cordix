@@ -9,3 +9,4 @@ import LeanCordix.Calculus
 import LeanCordix.FullCalculus
 import LeanCordix.TraceModel
 import LeanCordix.Equivariance
+import LeanCordix.Invariance
