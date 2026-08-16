@@ -121,6 +121,27 @@ theorem del_rename (φ : N → M) (hinj : Function.Injective φ)
         simp [registry, del, hp, hφ]
         simpa [registry] using ih
 
+/-- Renaming distributes over a fiber table/lifecycle update. -/
+theorem fiber_update_rename (φ : N → M) (f : Fiber N K V E)
+    (table : CoefCtx K V) (lc : Lifecycle N K V E) :
+    fiber φ { f with table := table, lc := lc } =
+      { fiber φ f with table := table, lc := lifecycle φ lc } := by
+  cases f
+  rfl
+
+/-- Renaming distributes over a fiber lifecycle update. -/
+theorem fiber_lc_rename (φ : N → M) (f : Fiber N K V E)
+    (lc : Lifecycle N K V E) :
+    fiber φ { f with lc := lc } = { fiber φ f with lc := lifecycle φ lc } := by
+  cases f
+  rfl
+
+/-- Renaming distributes over the retirement flag update. -/
+theorem fiber_retired_rename (φ : N → M) (f : Fiber N K V E) :
+    fiber φ { f with retired := true } = { fiber φ f with retired := true } := by
+  cases f
+  rfl
+
 /-- `lookup` commutes with renaming. -/
 theorem lookup_rename (φ : N → M) (r : Registry N K V E) (n : N)
     (hinj : Function.Injective φ) :
