@@ -114,6 +114,38 @@ theorem State.writeTable_preserves_approx {x y : State N K E V}
       simp [State.tableAt, hxn, hyn]
       exact h.tables m
 
+/-- The accumulator carried by a lifecycle state; `id` for inactive. -/
+def Lifecycle.acc {N K : Type} {V : K → Type u} {E : Type} :
+    Lifecycle N K V E → CoefCtx K V → CoefCtx K V
+  | .inactive _ => id
+  | .loading _ κ _ => κ
+  | .active κ _ => κ
+  | .unloading κ _ _ => κ
+
+/-- Apply a fiber's accumulator to the ambient context, leaving all tables
+unchanged.  This is the state-level reading of the paper's `κ_n` on the
+part of the state that `≈` compares. -/
+def State.applyAcc (s : State N K E V) (n : N) : State N K E V :=
+  match lookup s.reg n with
+  | some f =>
+      match f.lc with
+      | .inactive _ => s
+      | .loading _ κ _ => ⟨s.reg, κ s.ambient⟩
+      | .active κ _ => ⟨s.reg, κ s.ambient⟩
+      | .unloading κ _ _ => ⟨s.reg, κ s.ambient⟩
+  | none => s
+
+/-- Applying the identity accumulator of a freshly begun fiber is the
+identity on states. -/
+theorem State.applyAcc_of_loading_id {s : State N K E V} {n : N}
+    {f : Fiber N K V E} {v : K → Option N}
+    (hf : lookup s.reg n = some f) (hl : f.lc = .loading f.comp.iter id v) :
+    State.applyAcc s n = s := by
+  cases f with
+  | mk comp parent table retired lc =>
+      have hl' : lc = .loading comp.iter id v := by simpa using hl
+      simp [State.applyAcc, hf, hl']
+
 /-! ## Control-only edits preserve `≈` -/
 
 /-- A control-only edit is one of the rules whose `Ψ` is the identity and
@@ -347,6 +379,111 @@ theorem StepTrace.recovery_exactness_control_trace {s t : State N K E V}
       have h := StepTrace.recovery_exactness_control_trace ht htail
       have htail_approx : State.Approx t (Step.next st) := (Eq.symm hnext) ▸ h
       exact State.Approx.trans htail_approx hstep
+
+/-! ## Type-level trace folding: `t ≈ fold Ψ` -/
+
+/-- Fold the `Ψ` maps of a type-level trace over a state.  This is the
+right-hand side of Equation (52) when read along a whole trace. -/
+def Step.StepTrace.foldPsi {s t : State N K E V} :
+    Step.StepTrace s t → State N K E V → State N K E V
+  | .nil _, x => x
+  | .cons st _ ht, x => foldPsi ht (Step.psi st x)
+
+/-- For two states that are being folded through the same trace, this
+records that every step's acting name has the same presence in both
+current states; it is exactly the side condition needed by
+`Step.psi_preserves_approx` at each step. -/
+def Step.StepTrace.PsiDomainAgrees {s t : State N K E V} (x y : State N K E V) :
+    Step.StepTrace s t → Prop
+  | .nil _ => True
+  | .cons st _ ht =>
+      ((lookup x.reg st.name).isSome ↔ (lookup y.reg st.name).isSome) ∧
+        PsiDomainAgrees (Step.psi st x) (Step.psi st y) ht
+
+/-- Folding a trace through `≈`-equal states preserves `≈`, provided every
+step's acting name is present in both states (or absent from both). -/
+theorem StepTrace.foldPsi_preserves_approx {s t : State N K E V}
+    (ht : Step.StepTrace s t) {x y : State N K E V}
+    (h : State.Approx x y)
+    (hdom : Step.StepTrace.PsiDomainAgrees x y ht) :
+    State.Approx (Step.StepTrace.foldPsi ht x) (Step.StepTrace.foldPsi ht y) := by
+  cases ht with
+  | nil s => simpa [Step.StepTrace.foldPsi] using h
+  | cons st hnext ht =>
+      rcases hdom with ⟨hd, htail⟩
+      have hpsi : State.Approx (Step.psi st x) (Step.psi st y) := Step.psi_preserves_approx st h hd
+      have hrec := StepTrace.foldPsi_preserves_approx ht hpsi htail
+      simpa [Step.StepTrace.foldPsi] using hrec
+
+/-- Along a trace, every first step's `next` and `Ψ` state must keep the
+same domain for all later steps.  This packages the side condition for the
+trace-level Equation (52). -/
+def Step.StepTrace.NextPsiDomainAgrees {s t : State N K E V} :
+    Step.StepTrace s t → Prop
+  | .nil _ => True
+  | .cons st _ ht =>
+      Step.StepTrace.PsiDomainAgrees (Step.next st) (Step.psi st s) ht ∧
+        NextPsiDomainAgrees ht
+
+/-- **Trace-level Equation (52) up to `≈`.**  If no step is `O-Remove` and
+the domain side condition holds, the final state is `≈` to the result of
+folding every step's `Ψ` from the initial state. -/
+theorem StepTrace.next_approx_foldPsi {s t : State N K E V}
+    (ht : Step.StepTrace s t)
+    (hno : Step.StepTrace.AllSteps (fun {s} (st : Step s) => st.kind ≠ StepKind.oRemove) ht)
+    (hdom : Step.StepTrace.NextPsiDomainAgrees ht) :
+    State.Approx t (Step.StepTrace.foldPsi ht s) := by
+  cases ht with
+  | nil s => exact State.Approx.refl s
+  | cons st hnext ht =>
+      rcases hno with ⟨hst, htail⟩
+      rcases hdom with ⟨hd, htaildom⟩
+      have hstep : State.Approx (Step.next st) (Step.psi st s) :=
+        Step.edit_approx_psi_of_ne_remove st hst
+      have htail_approx : State.Approx t (Step.StepTrace.foldPsi ht (Step.next st)) := by
+        have h := StepTrace.next_approx_foldPsi ht htail htaildom
+        simpa [hnext] using h
+      have hfold : State.Approx (Step.StepTrace.foldPsi ht (Step.next st))
+          (Step.StepTrace.foldPsi ht (Step.psi st s)) :=
+        StepTrace.foldPsi_preserves_approx ht hstep hd
+      have hgoal : State.Approx t (Step.StepTrace.foldPsi ht (Step.psi st s)) :=
+        State.Approx.trans htail_approx hfold
+      simpa [Step.StepTrace.foldPsi] using hgoal
+
+/-- If no step of a trace acts on `n`, the fiber at `n` is unchanged. -/
+theorem StepTrace.lookup_eq_of_never {s t : State N K E V}
+    (ht : Step.StepTrace s t) {n : N} {f : Fiber N K V E}
+    (hstart : lookup s.reg n = some f)
+    (hno : Step.StepTrace.AllSteps (fun {s} (st : Step s) => st.name ≠ n) ht) :
+    lookup t.reg n = some f := by
+  cases ht with
+  | nil s => exact hstart
+  | cons st hnext ht =>
+      rcases hno with ⟨hst, htail⟩
+      have hnext_lookup : lookup (Step.next st).reg n = some f := by
+        rw [Step.lookup_next_eq_of_ne st (fun h => hst h.symm)]
+        exact hstart
+      have htail' : lookup t.reg n = some f := by
+        refine StepTrace.lookup_eq_of_never ht ?_ htail
+        simpa [hnext] using hnext_lookup
+      exact htail'
+
+/-- **Recovery exactness for an episode with no `n` steps.**  If the fiber
+`n` was just begun (accumulator `id`) and never steps again, applying its
+accumulator at the end recovers the state produced by folding the other
+steps' `Ψ` maps from the beginning. -/
+theorem StepTrace.recovery_exactness_no_steps_of {s t : State N K E V}
+    (ht : Step.StepTrace s t) {n : N} {v : K → Option N}
+    (hstart : ∃ f, lookup s.reg n = some f ∧ f.lc = .loading f.comp.iter id v)
+    (hno_n : Step.StepTrace.AllSteps (fun {s} (st : Step s) => st.name ≠ n) ht)
+    (hno_remove : Step.StepTrace.AllSteps (fun {s} (st : Step s) => st.kind ≠ StepKind.oRemove) ht)
+    (hdom : Step.StepTrace.NextPsiDomainAgrees ht) :
+    State.Approx (State.applyAcc t n) (Step.StepTrace.foldPsi ht s) := by
+  rcases hstart with ⟨f, hf, hl⟩
+  have ht_lookup : lookup t.reg n = some f := StepTrace.lookup_eq_of_never ht hf hno_n
+  have hacc_eq : State.applyAcc t n = t := State.applyAcc_of_loading_id ht_lookup hl
+  rw [hacc_eq]
+  exact StepTrace.next_approx_foldPsi ht hno_remove hdom
 
 /-! ## Resolution coherence (Theorem 64, iteration part) -/
 
