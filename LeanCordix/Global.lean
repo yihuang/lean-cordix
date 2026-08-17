@@ -361,6 +361,69 @@ def Step.StepTrace.ViewFixedAlong {s t : State N K E V} (n : N) (v : K → Optio
               ∃ f', lookup (Step.next st).reg n = some f' ∧ f'.lc.viewOf = v)) ∧
       ViewFixedAlong n v ht
 
+/-- **Theorem 64, loading-step dichotomy.**  A lifecycle step acting on a
+`loading` fiber is one of the five loading rules: `L-Iter`, `L-Finish`,
+`L-Raise`, `L-Divert` (abort or landing).  The first two keep the initial
+loading interval; the last three leave it. -/
+theorem Step.kind_of_loading_lifecycle {s : State N K E V} (st : Step s)
+    {n : N} {f : Fiber N K V E} {ι : Iterator (CoefCtx K V) E}
+    {κ : CoefCtx K V → CoefCtx K V} {v : K → Option N}
+    (hn : st.name = n)
+    (hlife : StepKind.isLifecycle st.kind)
+    (hf : lookup s.reg n = some f)
+    (hl : f.lc = .loading ι κ v) :
+    st.kind = StepKind.lIter ∨ st.kind = StepKind.lFinish ∨
+    st.kind = StepKind.lRaise ∨ st.kind = StepKind.lDivertAbort ∨
+    st.kind = StepKind.lDivertLand := by
+  cases st with
+  | lIter n0 f0 ι0 κ0 v0 ι' δ hinv hreach hf0 hl0 ht hstep =>
+      simp [Step.name] at hn
+      subst n0
+      exact Or.inl rfl
+  | lFinish n0 f0 ι0 κ0 v0 δ hinv hreach hf0 hl0 ht hstep =>
+      simp [Step.name] at hn
+      subst n0
+      exact Or.inr (Or.inl rfl)
+  | lRaise n0 f0 ι0 κ0 v0 e hreach hf0 hl0 hstep =>
+      simp [Step.name] at hn
+      subst n0
+      exact Or.inr (Or.inr (Or.inl rfl))
+  | lDivertAbort n0 f0 ι0 κ0 v0 hreach hf0 hl0 ht =>
+      simp [Step.name] at hn
+      subst n0
+      exact Or.inr (Or.inr (Or.inr (Or.inl rfl)))
+  | lDivertLand n0 f0 ι0 κ0 v0 δ hinv c hreach hf0 hl0 ht hstep =>
+      simp [Step.name] at hn
+      subst n0
+      exact Or.inr (Or.inr (Or.inr (Or.inr rfl)))
+  | oInsert n0 c p hn0 hp hdisj =>
+      simp [Step.name, Step.kind, StepKind.isLifecycle] at hn hlife
+  | oRetire n0 f0 hf0 =>
+      simp [Step.name, Step.kind, StepKind.isLifecycle] at hn hlife
+  | oRemove n0 f0 o hf0 hl0 hchild =>
+      simp [Step.name, Step.kind, StepKind.isLifecycle] at hn hlife
+  | lBegin n0 f0 v0 hf0 hl0 ht0 =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lLeave n0 f0 κ0 v0 hf0 hl0 ht0 =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lUnload n0 f0 κ0 v0 o hf0 hl0 hg =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+
 /-- An `L-Iter` or `L-Finish` step acting on a fiber whose committed view
 is `v` preserves that committed view. -/
 theorem Step.view_preserved_of_iter {s : State N K E V} (st : Step s)
