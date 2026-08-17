@@ -633,6 +633,96 @@ theorem Step.kind_of_unloading_lifecycle {s : State N K E V} (st : Step s)
   | oRemove n0 f0 o0 hf0 hl0 hchild =>
       simp [Step.name, Step.kind, StepKind.isLifecycle] at hn hlife
 
+/-- **Theorem 64, leaving-loading half.**  If a `loading` fiber leaves the
+loading interval through `L-Raise`/`L-Divert`, its next lifecycle state is
+`unloading` (with the same committed view `v`). -/
+theorem Step.next_unloading_of_loading_exit {s : State N K E V} (st : Step s)
+    {n : N} {f : Fiber N K V E} {ι : Iterator (CoefCtx K V) E}
+    {κ : CoefCtx K V → CoefCtx K V} {v : K → Option N}
+    (hn : st.name = n)
+    (hf : lookup s.reg n = some f)
+    (hl : f.lc = .loading ι κ v)
+    (hexit : st.kind = StepKind.lRaise ∨ st.kind = StepKind.lDivertAbort ∨
+              st.kind = StepKind.lDivertLand) :
+    ∃ κ' o f', lookup (Step.next st).reg n = some f' ∧ f'.lc = .unloading κ' v o := by
+  cases st with
+  | lRaise n0 f0 ι0 κ0 v0 e hreach hf0 hl0 hstep =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f0
+      have hκ : κ0 = κ := by
+        rw [hl] at hl0
+        injection hl0 with hι hκ hv
+        exact hκ.symm
+      have hv0 : v0 = v := by
+        rw [hl] at hl0
+        injection hl0 with hι hκ hv
+        exact hv.symm
+      refine ⟨κ, some e, { f with lc := .unloading κ v (some e) }, ?_⟩
+      simp [Step.next, Step.edit, Step.psi, hf, hκ, hv0]
+  | lDivertAbort n0 f0 ι0 κ0 v0 hreach hf0 hl0 ht =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f0
+      have hκ : κ0 = κ := by
+        rw [hl] at hl0
+        injection hl0 with hι hκ hv
+        exact hκ.symm
+      have hv0 : v0 = v := by
+        rw [hl] at hl0
+        injection hl0 with hι hκ hv
+        exact hv.symm
+      refine ⟨κ, none, { f with lc := .unloading κ v none }, ?_⟩
+      simp [Step.next, Step.edit, Step.psi, hf, hκ, hv0]
+  | lDivertLand n0 f0 ι0 κ0 v0 δ hinv c hreach hf0 hl0 ht hstep =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f0
+      have hκ : κ0 = κ := by
+        rw [hl] at hl0
+        injection hl0 with hι hκ hv
+        exact hκ.symm
+      have hv0 : v0 = v := by
+        rw [hl] at hl0
+        injection hl0 with hι hκ hv
+        exact hv.symm
+      refine ⟨κ ∘ hinv, none, { f with table := δ, lc := .unloading (κ ∘ hinv) v none }, ?_⟩
+      simp [Step.next, Step.edit, Step.psi, hf, hκ, hv0, set_set_eq]
+  | lIter n0 f0 ι0 κ0 v0 ι' δ hinv hreach hf0 hl0 ht hstep =>
+      simp [Step.name, Step.kind] at hn hexit
+  | lFinish n0 f0 ι0 κ0 v0 δ hinv hreach hf0 hl0 ht hstep =>
+      simp [Step.name, Step.kind] at hn hexit
+  | lBegin n0 f0 v0 hf0 hl0 ht0 =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lLeave n0 f0 κ0 v0 hf0 hl0 ht0 =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lUnload n0 f0 κ0 v0 o hf0 hl0 hg =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | oInsert n0 c p hn0 hp hdisj =>
+      simp [Step.name, Step.kind] at hn hexit
+  | oRetire n0 f0 hf0 =>
+      simp [Step.name, Step.kind] at hn hexit
+  | oRemove n0 f0 o hf0 hl0 hchild =>
+      simp [Step.name, Step.kind] at hn hexit
+
 /-- An `L-Iter` or `L-Finish` step acting on a fiber whose committed view
 is `v` preserves that committed view. -/
 theorem Step.view_preserved_of_iter {s : State N K E V} (st : Step s)
