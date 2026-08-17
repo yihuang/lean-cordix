@@ -26,6 +26,7 @@ whole system.
 | `LeanCordix.TraceModel` | §4.4 | The trace-indexed model `edit ∘ Ψ`: a `State` structure carrying the registry plus the ambient context, a **Type-level step record** `Step` with explicit `name` and `kind` fields, the state map `Ψ` and the edit `edit` as ordinary functions `State → State`, the factorization `next st = edit st (Ψ st)` (Eq. 52), Lemma 54, Type-level `StepTrace` preservation, and Lemma 57 (vestigial entries: deletion lemmas, step transport, and step lifting with the explicit insertion/removal conflicts). |
 | `LeanCordix.Invariance` | §4.4 | Lemma 55: observational `Lifecycle.Equiv` and `State.Equiv` with symmetry, pointwise fiber fields, derived congruence of `targetOf`/`relied`, preservation of the domain and fields by `set`/`del`, preservation of `sigmaOf`/`providerOf` by contribution-preserving updates, fresh insertions, unloading the unique table provider, and finishing a table-confined activation; **step transport** of every `Step` constructor across `State.Equiv` (`step_transport`, same name and kind) and **next-state preservation** (`step_equiv`) under `WellFormed`, `TableProv`, and `Registry.TableConfined`. |
 | `LeanCordix.FullCalculus` | §4.3–4.4 | The full ten-rule calculus: four-state lifecycle (Def 49), `L-Begin`, `L-Iter`, `L-Finish`, `L-Divert` (abort and landing), `L-Raise`, `L-Leave`, `L-Unload`, plus `O-Insert`/`O-Retire`/`O-Remove`. Defines full `WellFormed` (Def 58, all four clauses), proves **preservation of all four clauses under all ten rules** (Thm 59) and **along finite traces**, packages the confinement-derived invariants as `ConfinedWellFormed` and proves **their preservation under all ten rules** (Thm 59 again), adds the **table-aware lifecycle relation** `LstepT`/`TStep`, **proves preservation under table-aware steps** (`ConfinedWellFormed.preservedT`), packages `TableConfinedWellFormed` with component confinement and loading-iterator reachability, **proves table-aware lifecycle trace preservation**, and **proves table-aware progress** (`exists_lstepT_of_not_quiet`).  It also proves **progress** (Thm 66.1) under acyclicity plus those invariants (`exists_lstep_of_not_quiet`), and **quiescence is sound** (`no_lstep_of_quiet`). |
+| `LeanCordix.Global` | §4.4.2–4.4.3 | The start of the global metatheory: the effect-side relation `State.Approx` (paper `≈`) comparing ambient and raw tables while forgetting control fields; `ControlOnly` steps and the **control-only recovery-exactness step/trace lemmas** (`Step.edit_control_preserves_approx`, `StepTrace.recovery_exactness_control_trace`); type-level trace predicates; and the **resolution-coherence core of Theorem 64** (`Step.view_preserved_of_iter`, `Step.target_eq_of_iter_view`, `StepTrace.view_fixed_of_iteration_trace`, `StepTrace.resolution_coherent_of_iteration_trace`). |
 
 ## Scope
 
@@ -45,15 +46,17 @@ All of the formalized definitions and the following results carry full proofs:
   under the table-aware calculus `LstepT`/`TStep`; full progress (Thm 66.1)
   under acyclicity of precedence plus the confinement-derived invariants;
   quiescence soundness.
+* §4.4.2/4.4.3 — the effect-side relation `≈` (`State.Approx`), the
+  control-only recovery-exactness step and trace lemmas, and the resolution
+  coherence core of Theorem 64: in an iteration-only initial interval the
+  committed view is fixed and every `L-Iter`/`L-Finish` runs against the
+  same resolution `v`.
 
-Left as future work: the remaining global metatheory built on confinement
-(§4.4.2–4.4.5: recovery exactness, resolution coherence, termination,
-confluence, and the global
-composability theorems beyond the trace-indexed material now proved in
-`TraceModel`).  The confinement invariants themselves are
-packaged and preserved (`ConfinedWellFormed`), and full progress
-(Thm 66.1) is proved under acyclicity plus those invariants; termination
-(Thm 66.2) and confluence (Thm 73) remain open.
+Left as future work: the full recovery-exactness theorem with pairwise
+independence of iterators (Theorem 61 and Corollary 62 in full generality),
+termination (Thm 66.2), confluence (Thm 73), and the remaining global
+composability theorems beyond the material now proved in `TraceModel` and
+`Global`.
 
 ## Building
 
