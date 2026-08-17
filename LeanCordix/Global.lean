@@ -61,6 +61,59 @@ theorem trans {s s' s'' : State N K E V} (h : State.Approx s s')
 
 end State.Approx
 
+/-- `tableAt` after a pointwise `set` at the updated name. -/
+theorem State.tableAt_set_eq (r : Registry N K V E) (n : N) (g : Fiber N K V E)
+    (a : CoefCtx K V) :
+    State.tableAt ⟨set r n g, a⟩ n = g.table := by
+  simp [State.tableAt]
+
+/-- `tableAt` after a pointwise `set` away from the updated name. -/
+theorem State.tableAt_set_ne (r : Registry N K V E) (n m : N) (g : Fiber N K V E)
+    (a : CoefCtx K V) (hmn : m ≠ n) :
+    State.tableAt ⟨set r n g, a⟩ m = State.tableAt ⟨r, a⟩ m := by
+  simp [State.tableAt, lookup_set_ne r n m g hmn]
+
+/-- The table-writing part of a `Ψ`: replace the raw table at `n` by `δ`,
+or do nothing when `n` is absent. -/
+def State.writeTable (s : State N K E V) (n : N) (δ : CoefCtx K V) : State N K E V :=
+  match lookup s.reg n with
+  | some g => ⟨set s.reg n { g with table := δ }, s.ambient⟩
+  | none => s
+
+/-- A table-writing `Ψ` preserves `≈` when the acting name is present in
+both states or absent from both states. -/
+theorem State.writeTable_preserves_approx {x y : State N K E V}
+    (h : State.Approx x y) {n : N} {δ : CoefCtx K V}
+    (hdom : (lookup x.reg n).isSome ↔ (lookup y.reg n).isSome) :
+    State.Approx (State.writeTable x n δ) (State.writeTable y n δ) := by
+  constructor
+  · unfold State.writeTable
+    by_cases hx : (lookup x.reg n).isSome
+    · have hy : (lookup y.reg n).isSome := hdom.mp hx
+      rcases Option.isSome_iff_exists.mp hx with ⟨fx, hfx⟩
+      rcases Option.isSome_iff_exists.mp hy with ⟨fy, hfy⟩
+      simp [hfx, hfy, h.ambient]
+    · have hy : ¬ (lookup y.reg n).isSome := by intro hy; exact hx (hdom.mpr hy)
+      have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+      have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+      simp [hxn, hyn, h.ambient]
+  · intro m
+    unfold State.writeTable
+    by_cases hx : (lookup x.reg n).isSome
+    · have hy : (lookup y.reg n).isSome := hdom.mp hx
+      rcases Option.isSome_iff_exists.mp hx with ⟨fx, hfx⟩
+      rcases Option.isSome_iff_exists.mp hy with ⟨fy, hfy⟩
+      by_cases hmn : m = n
+      · subst m
+        simp [State.tableAt, hfx, hfy, State.tableAt_set_eq]
+      · simp [State.tableAt, hfx, hfy, State.tableAt_set_ne, hmn]
+        exact h.tables m
+    · have hy : ¬ (lookup y.reg n).isSome := by intro hy; exact hx (hdom.mpr hy)
+      have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+      have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+      simp [State.tableAt, hxn, hyn]
+      exact h.tables m
+
 /-! ## Control-only edits preserve `≈` -/
 
 /-- A control-only edit is one of the rules whose `Ψ` is the identity and
@@ -141,6 +194,133 @@ theorem Step.edit_control_preserves_approx {s : State N K E V} (st : Step s)
     (hno : ControlOnly st) :
     State.Approx (Step.next st) s :=
   ⟨Step.edit_control_ambient st hno, Step.edit_control_tableAt st hno⟩
+
+/-- **Every `Ψ` preserves `≈`.**  A step's state map is either the identity,
+a fixed table write at its acting name, or the application of a fixed
+ambient accumulator at `L-Unload`; each of these carries `≈`-equal states
+to `≈`-equal states, provided the acting name has the same presence in the
+two input states. -/
+theorem Step.psi_preserves_approx {s x y : State N K E V} (st : Step s)
+    (h : State.Approx x y)
+    (hdom : (lookup x.reg st.name).isSome ↔ (lookup y.reg st.name).isSome) :
+    State.Approx (Step.psi st x) (Step.psi st y) := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simpa [Step.psi] using h
+  | oRetire n f hf => simpa [Step.psi] using h
+  | oRemove n f o hf hl hchild => simpa [Step.psi] using h
+  | lBegin n f v hf hl ht => simpa [Step.psi] using h
+  | lIter n f ι κ v ι' δ hinv hreach hf hl ht hstep =>
+      have hdom' : (lookup x.reg n).isSome ↔ (lookup y.reg n).isSome := by
+        simpa [Step.name] using hdom
+      exact State.writeTable_preserves_approx h hdom'
+  | lFinish n f ι κ v δ hinv hreach hf hl ht hstep =>
+      have hdom' : (lookup x.reg n).isSome ↔ (lookup y.reg n).isSome := by
+        simpa [Step.name] using hdom
+      exact State.writeTable_preserves_approx h hdom'
+  | lRaise n f ι κ v e hreach hf hl hstep => simpa [Step.psi] using h
+  | lDivertAbort n f ι κ v hreach hf hl ht => simpa [Step.psi] using h
+  | lDivertLand n f ι κ v δ hinv c hreach hf hl ht hstep =>
+      have hdom' : (lookup x.reg n).isSome ↔ (lookup y.reg n).isSome := by
+        simpa [Step.name] using hdom
+      exact State.writeTable_preserves_approx h hdom'
+  | lLeave n f κ v hf hl ht => simpa [Step.psi] using h
+  | lUnload n f κ v o hf hl hg =>
+      constructor
+      · simp [Step.psi, h.ambient]
+      · intro m
+        simp [Step.psi]
+        exact h.tables m
+
+/-- **Equation (52) up to `≈`.**  For every rule except `O-Remove`, the
+`edit` half writes only control fields: `next st ≈ Ψ st`.  `O-Remove` is
+excluded because deleting a fiber can delete its raw table; in the paper
+that case is handled by the vestigial-entry lemmas of Lemma 57. -/
+theorem Step.edit_approx_psi_of_ne_remove {s : State N K E V} (st : Step s)
+    (hno : st.kind ≠ StepKind.oRemove) :
+    State.Approx (Step.next st) (Step.psi st s) := by
+  cases st with
+  | oInsert n c p hn hp hdisj =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hn]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, lookup_set_ne, hmn]
+  | oRetire n f hf =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn]
+  | oRemove n f o hf hl hchild =>
+      simp [Step.kind] at hno
+  | lBegin n f v hf hl ht =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn]
+  | lIter n f ι κ v ι' δ hinv hreach hf hl ht hstep =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, set_set_eq]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn, set_set_eq]
+  | lFinish n f ι κ v δ hinv hreach hf hl ht hstep =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, set_set_eq]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn, set_set_eq]
+  | lRaise n f ι κ v e hreach hf hl hstep =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn]
+  | lDivertAbort n f ι κ v hreach hf hl ht =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn]
+  | lDivertLand n f ι κ v δ hinv c hreach hf hl ht hstep =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, set_set_eq]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn, set_set_eq]
+  | lLeave n f κ v hf hl ht =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn]
+  | lUnload n f κ v o hf hl hg =>
+      constructor
+      · simp [Step.next, Step.edit, Step.psi, hf]
+      · intro m
+        by_cases hmn : m = n
+        · subst m
+          simp [Step.next, Step.edit, Step.psi, State.tableAt, hf]
+        · simp [Step.next, Step.edit, Step.psi, State.tableAt, hf, lookup_set_ne, hmn]
 
 /-! ## Type-level traces and a first recovery-exactness result -/
 
