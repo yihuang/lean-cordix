@@ -561,6 +561,78 @@ theorem Step.kind_of_loading_lifecycle {s : State N K E V} (st : Step s)
       rw [hl] at hl0
       simp at hl0
 
+/-- **Theorem 64, unloading-closing half.**  Once a fiber is `unloading`,
+the only lifecycle step that can act on it is `L-Unload`.  This is the
+last step that closes an episode after `L-Raise`/`L-Divert`. -/
+theorem Step.kind_of_unloading_lifecycle {s : State N K E V} (st : Step s)
+    {n : N} {f : Fiber N K V E} {κ : CoefCtx K V → CoefCtx K V}
+    {v : K → Option N} {o : Option E}
+    (hn : st.name = n)
+    (hlife : StepKind.isLifecycle st.kind)
+    (hf : lookup s.reg n = some f)
+    (hl : f.lc = .unloading κ v o) :
+    st.kind = StepKind.lUnload := by
+  cases st with
+  | lUnload n0 f0 κ0 v0 o0 hf0 hl0 hg =>
+      simp [Step.name] at hn
+      subst n0
+      rfl
+  | lBegin n0 f0 v0 hf0 hl0 ht0 =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lIter n0 f0 ι0 κ0 v0 ι' δ hinv hreach hf0 hl0 ht hstep =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lFinish n0 f0 ι0 κ0 v0 δ hinv hreach hf0 hl0 ht hstep =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lRaise n0 f0 ι0 κ0 v0 e hreach hf0 hl0 hstep =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lDivertAbort n0 f0 ι0 κ0 v0 hreach hf0 hl0 ht =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lDivertLand n0 f0 ι0 κ0 v0 δ hinv c hreach hf0 hl0 ht hstep =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | lLeave n0 f0 κ0 v0 hf0 hl0 ht0 =>
+      simp [Step.name] at hn
+      subst n0
+      have hf_eq : f = f0 := Option.some.inj (hf.symm.trans hf0)
+      subst f
+      rw [hl] at hl0
+      simp at hl0
+  | oInsert n0 c p hn0 hp hdisj =>
+      simp [Step.name, Step.kind, StepKind.isLifecycle] at hn hlife
+  | oRetire n0 f0 hf0 =>
+      simp [Step.name, Step.kind, StepKind.isLifecycle] at hn hlife
+  | oRemove n0 f0 o0 hf0 hl0 hchild =>
+      simp [Step.name, Step.kind, StepKind.isLifecycle] at hn hlife
+
 /-- An `L-Iter` or `L-Finish` step acting on a fiber whose committed view
 is `v` preserves that committed view. -/
 theorem Step.view_preserved_of_iter {s : State N K E V} (st : Step s)
