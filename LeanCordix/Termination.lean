@@ -309,6 +309,57 @@ theorem countFor_le_targetTurns_of_len (len : N → Nat)
     exact hinterval (n := n) (v := v) ht' hc
   exact countFor_le_mul_of_interval_bound (len n + 4) n hB' ht
 
+/-! ## Decomposition into loading and non-loading lifecycle steps
+
+To instantiate the per-interval bound one still has to prove the paper's
+`len` hypothesis.  A useful decomposition for that proof is to separate the
+loading-phase steps (`L-Iter`, `L-Finish`, `L-Raise`, `L-Divert`) from the
+boundary steps (`L-Begin`, `L-Leave`, `L-Unload`).  The lemma below is the
+counting identity behind that separation for traces consisting only of
+lifecycle steps. -/
+
+/-- A loading-phase lifecycle kind: a step that can occur while the fiber
+is in `loading`. -/
+def IsLoadingKind (k : StepKind) : Prop :=
+  k = StepKind.lIter ∨ k = StepKind.lFinish ∨ k = StepKind.lRaise ∨
+    k = StepKind.lDivertAbort ∨ k = StepKind.lDivertLand
+
+/-- A non-loading lifecycle kind: a step that opens, leaves, or closes an
+activation episode. -/
+def IsNonLoadingKind (k : StepKind) : Prop :=
+  k = StepKind.lBegin ∨ k = StepKind.lLeave ∨ k = StepKind.lUnload
+
+/-- The number of loading-phase steps acting on `n`. -/
+def loadingCount {s t : State N K E V} (ht : StepTrace s t) (n : N) : Nat :=
+  match ht with
+  | .nil _ => 0
+  | .cons st _ ht =>
+      (if st.name = n ∧ IsLoadingKind st.kind then 1 else 0) + loadingCount ht n
+
+/-- The number of non-loading lifecycle steps acting on `n`. -/
+def nonLoadingCount {s t : State N K E V} (ht : StepTrace s t) (n : N) : Nat :=
+  match ht with
+  | .nil _ => 0
+  | .cons st _ ht =>
+      (if st.name = n ∧ IsNonLoadingKind st.kind then 1 else 0) + nonLoadingCount ht n
+
+/-- For a lifecycle-only trace, `countFor` splits into the loading-phase
+count and the boundary-step count. -/
+theorem countFor_eq_loading_add_nonLoading {s t : State N K E V}
+    (ht : StepTrace s t) (n : N)
+    (hlife : StepTrace.AllSteps (fun {s} (st : Step s) => StepKind.isLifecycle st.kind) ht) :
+    countFor ht n = loadingCount ht n + nonLoadingCount ht n := by
+  induction ht with
+  | nil s => simp [countFor, loadingCount, nonLoadingCount]
+  | @cons s₁ s₂ s₃ st hnext ht ih =>
+      rcases hlife with ⟨hlife_st, hlife_tail⟩
+      have ih' := ih hlife_tail
+      by_cases hname : st.name = n
+      · simp [countFor, loadingCount, nonLoadingCount, hname]
+        cases st <;> simp [IsLoadingKind, IsNonLoadingKind, Step.kind, StepKind.isLifecycle]
+          at hlife_st ⊢ <;> omega
+      · simp [countFor, loadingCount, nonLoadingCount, hname, ih']
+
 end Step.StepTrace
 
 end -- noncomputable section
