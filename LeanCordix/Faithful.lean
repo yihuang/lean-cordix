@@ -443,6 +443,25 @@ theorem rawSigma_set_table_eq_old {N : Type} [DecidableEq N] {K : Type}
         simp [set, hp, rawSigma]
         exact congrArg (fun x => (p.2.table k).or x) (by simpa [rawSigma] using ih')
 
+/-- Changing only a fiber's lifecycle leaves the raw sigma unchanged. -/
+theorem rawSigma_set_lc_eq {N : Type} [DecidableEq N] {K : Type}
+    {V : K → Type u} {E : Type} {r : Registry N K V E} {n : N}
+    {g : Fiber N K V E} {lc' : Lifecycle N K V E}
+    (hf : lookup r n = some g) :
+    rawSigma (set r n { g with lc := lc' }) = rawSigma r := by
+  funext k
+  induction r with
+  | nil => cases hf
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · have hp' : p.2 = g := by simpa [lookup, hp] using hf
+        simp [set, hp, rawSigma, hp']
+      · have hg_rest : lookup rest n = some g := by
+          simpa [lookup, hp] using hf
+        have ih' := ih hg_rest
+        simp [set, hp, rawSigma]
+        exact congrArg (fun x => (p.2.table k).or x) (by simpa [rawSigma] using ih')
+
 /-- Under confinement, writing an effect preserves the raw full-context
 sigma. -/
 theorem rawSigma_writeEffect_of_confined {s : State N K E V} {n : N} {δ : Ctx K V}
@@ -692,6 +711,69 @@ theorem trans {s s' s'' : State N K E V} (h : State.Approx s s')
 end Approx
 
 end State
+
+/-- A faithful `L-Iter` step on `n` is invisible to `State.recover` up to
+`≈`: the new inverse recovers the full context that the accumulator already
+knew. -/
+theorem Step.recover_self_lIter_approx {s : State N K E V} {n : N}
+    {f : Fiber N K V E} {ι : Iterator (Ctx K V) E} {κ : Ctx K V → Ctx K V}
+    {v : K → Option N} {ι' : Iterator (Ctx K V) E} {δ : Ctx K V}
+    {h : Ctx K V → Ctx K V}
+    (hreach : Iterator.Reachable f.comp.iter ι)
+    (hf : lookup s.reg n = some f) (hl : f.lc = .loading ι κ v)
+    (ht : targetOf s.reg n = some v)
+    (hstep : Iterator.step ι (State.fullCtx s) = .ok (δ, h, some ι'))
+    (hnodup : NodupKeys s.reg) (hconf : ConfinedEffect s n δ) :
+    State.Approx
+      (State.recover (Step.next (Step.lIter n f ι κ v ι' δ h hreach hf hl ht hstep)) n)
+      (State.recover s n) := by
+  let f' : Fiber N K V E := { f with table := splitTable f.comp.prov δ.2 }
+  have hf_write : lookup (State.writeEffect s n δ).reg n = some f' := by
+    simp [State.writeEffect, hf, f', lookup_set_eq]
+  have hwitness : h δ = State.fullCtx s := by
+    have hw' := f.comp.wit hreach (State.fullCtx s)
+    unfold Iterator.Witnessed at hw'
+    rw [hstep] at hw'
+    simpa using hw'
+  have hfull_next : State.fullCtx
+      (Step.next (Step.lIter n f ι κ v ι' δ h hreach hf hl ht hstep)) = δ := by
+    have hpsi : Step.psi (Step.lIter n f ι κ v ι' δ h hreach hf hl ht hstep) s =
+        State.writeEffect s n δ := by
+      simp [Step.psi, hstep]
+    rw [Step.next, hpsi]
+    have hfull_edit : State.fullCtx
+        (Step.edit (Step.lIter n f ι κ v ι' δ h hreach hf hl ht hstep)
+          (State.writeEffect s n δ)) =
+        State.fullCtx (State.writeEffect s n δ) := by
+      unfold State.fullCtx
+      apply Prod.ext
+      · simp [Step.edit, hf_write]
+      · have hset : rawSigma
+            (set (State.writeEffect s n δ).reg n
+              { f' with lc := .loading ι' (κ ∘ h) v }) =
+            rawSigma (State.writeEffect s n δ).reg := by
+          apply rawSigma_set_lc_eq hf_write
+        simpa [Step.edit, hf_write] using hset
+    rw [hfull_edit]
+    exact State.fullCtx_writeEffect_of_confined hnodup hconf
+  have hf_next : lookup (Step.next (Step.lIter n f ι κ v ι' δ h hreach hf hl ht hstep)).reg n =
+      some ({ f' with lc := .loading ι' (κ ∘ h) v } : Fiber N K V E) := by
+    simp [Step.next, Step.edit, Step.psi, hstep, State.writeEffect, hf, f', lookup_set_eq]
+  constructor
+  · -- ambient: `(κ ∘ h) (fullCtx next) = κ (fullCtx s)`
+    simp [State.recover, hf_next, hf, hl, hfull_next, hwitness, Function.comp]
+  · -- tables: both recoveries empty `n`'s table
+    intro x
+    by_cases hxn : x = n
+    · subst x
+      simp [State.recover, hf_next, hf, hl, State.tableAt, lookup_set_eq]
+    · have hlook : lookup (Step.next (Step.lIter n f ι κ v ι' δ h hreach hf hl ht hstep)).reg x =
+          lookup s.reg x := by
+        simp [Step.next, Step.edit, Step.psi, hstep, State.writeEffect, hf,
+          lookup_set_eq, lookup_set_ne, hxn, Ne.symm hxn]
+      simp [State.recover, hf_next, hf, hl, State.tableAt, hxn,
+        lookup_set_ne, Ne.symm hxn]
+      rw [hlook]
 
 /-- A finite trace of faithful `Step` records. -/
 inductive StepTrace : State N K E V → State N K E V → Type (max 1 u) where
