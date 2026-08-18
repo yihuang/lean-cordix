@@ -2,6 +2,7 @@ import LeanCordix.FullCtx
 import LeanCordix.Iterator
 import LeanCordix.Coeffect
 import LeanCordix.TraceModel
+import LeanCordix.Independence
 
 /-!
 # Cordix — Faithful full-context model (parallel development)
