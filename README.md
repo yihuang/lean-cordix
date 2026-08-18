@@ -28,6 +28,7 @@ whole system.
 | `LeanCordix.FullCalculus` | §4.3–4.4 | The full ten-rule calculus: four-state lifecycle (Def 49), `L-Begin`, `L-Iter`, `L-Finish`, `L-Divert` (abort and landing), `L-Raise`, `L-Leave`, `L-Unload`, plus `O-Insert`/`O-Retire`/`O-Remove`. Defines full `WellFormed` (Def 58, all four clauses), proves **preservation of all four clauses under all ten rules** (Thm 59) and **along finite traces**, packages the confinement-derived invariants as `ConfinedWellFormed` and proves **their preservation under all ten rules** (Thm 59 again), adds the **table-aware lifecycle relation** `LstepT`/`TStep`, **proves preservation under table-aware steps** (`ConfinedWellFormed.preservedT`), packages `TableConfinedWellFormed` with component confinement and loading-iterator reachability, **proves table-aware lifecycle trace preservation**, and **proves table-aware progress** (`exists_lstepT_of_not_quiet`).  It also proves **progress** (Thm 66.1) under acyclicity plus those invariants (`exists_lstep_of_not_quiet`), and **quiescence is sound** (`no_lstep_of_quiet`). |
 | `LeanCordix.Global` | §4.4.2–4.4.3 | The start of the global metatheory: the effect-side relation `State.Approx` (paper `≈`) comparing ambient and raw tables while forgetting control fields; `State.writeTable` and **`Ψ` preserves `≈`** (`State.writeTable_preserves_approx`, `Step.psi_preserves_approx`); `ControlOnly` steps and the **control-only recovery-exactness step/trace lemmas** (`Step.edit_control_preserves_approx`, `StepTrace.recovery_exactness_control_trace`); **Equation (52) up to `≈` for every non-`O-Remove` rule** (`Step.edit_approx_psi_of_ne_remove`); **trace-level Equation (52)** (`Step.StepTrace.foldPsi`, `StepTrace.foldPsi_preserves_approx`, `StepTrace.next_approx_foldPsi`) and **recovery exactness for an episode with no `n` steps** (`StepTrace.recovery_exactness_no_steps_of`); type-level trace predicates; and the **resolution-coherence core of Theorem 64** (`Step.view_preserved_of_iter`, `Step.target_eq_of_iter_view`, `StepTrace.view_fixed_of_iteration_trace`, `StepTrace.resolution_coherent_of_iteration_trace`), plus the **loading-step dichotomy** `Step.kind_of_loading_lifecycle`, the **leaving-loading half** `Step.next_unloading_of_loading_exit`, and the **unloading-closing half** `Step.kind_of_unloading_lifecycle`. |
 | `LeanCordix.Independence` | §4.4.2, Def 60 | Iterator **transformation monoids** `M(ι)` (Eq. 54), iterator **independence** and **pairwise independence** (Eq. 55), `State.accAt`, the ambient step commutation lemmas `State.applyAcc_psi_commute` / `_of_indep`, the full state-level recovery operation `State.recoverAcc`, and its `≈`-commutation lemmas `State.recoverAcc_writeTable_approx`, `State.recoverAcc_psi_commute_approx` / `_of_indep` used by the proof of Theorem 61. |
+| `LeanCordix.Faithful` | §4.3–4.4 (canonical full-context) | The canonical full-context model: components and iterators run on `FullCtx = (ambient, rawSigma)`; faithful `State`, `Step`, `StepTrace`; `State.fullCtx`, `State.recover`; write-confinement interfaces `ConfinedIterator` / `ConfinedAcc` / `Component.Confined` / `Lifecycle.Confined`; **faithful Theorem 61 / Corollary 62** (`State.recover_psi_commute_approx_of_indep`, `StepTrace.recovery_exactness_aux`, `recovery_exactness_cor62*`, `PsiFiberAgrees_of_sameFiberAt`, `PsiConfinedAgrees_of_confined`). |
 | `LeanCordix.Termination` | §4.4.4 | Termination scaffolding for Thm 66.2: `Step.StepTrace.length`, `countFor`, and `targetTurns` (Eq. 61), with `countFor_eq_zero_of_no_steps`, `countFor_le_length`, and `targetTurns_le_length`; **interval splitting** (`append`, `SourceTargetConst`, `Split`, `splitFirstInterval`), and the **combinatorial half of Theorem 66.2** (`countFor_le_mul_of_interval_bound`, `countFor_le_targetTurns_of_len`): if every source-constant interval has at most `B` steps on a fiber, then `countFor ht n ≤ B * (targetTurns ht n + 1)`; plus the loading/non-loading lifecycle decomposition (`IsLoadingKind`, `IsNonLoadingKind`, `loadingCount`, `nonLoadingCount`, `countFor_eq_loading_add_nonLoading`). |
 
 ## Scope
@@ -70,21 +71,29 @@ All of the formalized definitions and the following results carry full proofs:
   `countFor_le_targetTurns_of_len`; and the loading/non-loading lifecycle
   decomposition `loadingCount`/`nonLoadingCount` with
   `countFor_eq_loading_add_nonLoading`.
+* §4.3–4.4, faithful full-context model — the canonical model in
+  `LeanCordix.Faithful`: iterators run on `FullCtx = (ambient, rawSigma)`;
+  write-confinement interfaces; **faithful Theorem 61 / Corollary 62** in
+  trace-level form (`StepTrace.recovery_exactness_aux`,
+  `recovery_exactness_cor62*`), including the `PsiFiberAgrees` and
+  `PsiConfinedAgrees` derivations from `SameFiberAt`, `NoNonNInsert`,
+  `hno_remove`, and write-confined iterators/accumulators.
 
-Left as future work: the full trace-level recovery-exactness theorem with
-pairwise independence of iterators (Theorem 61 and Corollary 62 in full
-generality), the per-interval `len n + 4` bound that instantiates the
+Left as future work: the remaining primitive derivation of
+`hconf_iter` / `hconf_acc` in the faithful model from `Component.Confined`
+and `Lifecycle.Confined` preservation (the trace-level Theorem 61 /
+Corollary 62 themselves are already formalized with those explicit side
+conditions), the per-interval `len n + 4` bound that instantiates the
 combinatorial termination bound (the remaining part of Thm 66.2), confluence
 (Thm 73), and the remaining global composability theorems beyond the material
-now proved in `TraceModel` and `Global`.
+now proved in `TraceModel`, `Global`, and `Faithful`.
 
-The `Independence` module now supplies Definition 60, the local step
+The legacy `Independence` module supplies Definition 60, the local step
 commutation lemmas, and `Global.State.recoverAcc` — the full state-level
 accumulator that also restores a tracked fiber's table — together with its
-`≈`-commutation lemmas for other-fiber steps.  Completing Theorem 61 still
-requires the trace-level induction and a model-level condition making an
-`n`-step's own inverse recover that fiber's table (the iterator currently
-runs against the whole `sigmaOf`, not the single fiber table).
+`≈`-commutation lemmas for other-fiber steps.  The old sigmaOf-only model is
+kept as a legacy dependency; the canonical full-context development lives in
+`LeanCordix.Faithful`.
 
 ## Building
 

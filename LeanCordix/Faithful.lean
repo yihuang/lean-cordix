@@ -5,13 +5,14 @@ import LeanCordix.TraceModel
 import LeanCordix.Independence
 
 /-!
-# Cordix — Faithful full-context model (parallel development)
+# Cordix — Faithful full-context model
 
-This module is the faithful counterpart of `FullCalculus` / `TraceModel`:
-iterators run against the full context `FullCtx = (ambient, sigma)` rather
-than against `sigmaOf` alone.  It is intentionally developed in parallel so
-the existing model stays green while the faithful definitions and theorems
-are built out.
+This module is the canonical full-context model: iterators run against the
+full context `FullCtx = (ambient, sigma)` rather than against `sigmaOf`
+alone.  It reuses the legacy `FullCalculus` / `TraceModel` / `Independence`
+machinery where convenient (for example `Full.StepKind` and iterator
+independence), but defines its own faithful `State`, `Step`, `StepTrace`,
+and recovery-exactness theorems.
 
 Current contents:
 
@@ -19,7 +20,16 @@ Current contents:
 * `Faithful.Lifecycle` — lifecycle carrying `FullCtx → FullCtx` accumulators;
 * `Faithful.Fiber`, `Faithful.Registry`, `Faithful.State`;
 * the derived context operations `sigmaOf`, `providerOf`, `targetOf`,
-  `quiet`, `relied`, and `State.fullCtx`.
+  `quiet`, `relied`, and `State.fullCtx`;
+* write-confinement interfaces `ConfinedIterator` / `ConfinedAcc` /
+  `Component.Confined` / `Lifecycle.Confined`;
+* faithful Theorem 61 / Corollary 62:
+  `State.recover_psi_commute_approx_of_indep`,
+  `StepTrace.recovery_exactness_aux`,
+  `StepTrace.recovery_exactness_cor62`,
+  `StepTrace.recovery_exactness_cor62_wellformed`,
+  `StepTrace.recovery_exactness_cor62_fiber_stable`,
+  `StepTrace.recovery_exactness_cor62_confined`.
 -/
 
 set_option linter.unusedVariables false

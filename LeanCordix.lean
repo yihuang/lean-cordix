@@ -1,5 +1,10 @@
 -- This module serves as the root of the `LeanCordix` library.
 -- Import modules here that should be built as part of the library.
+--
+-- `LeanCordix.Faithful` is the canonical full-context model.  The earlier
+-- `FullCalculus` / `Global` / `Independence` modules remain in the build as
+-- legacy dependencies (e.g. `Full.StepKind`, iterator independence, and the
+-- old sigmaOf-only development).
 import LeanCordix.Basic
 import LeanCordix.Revertible
 import LeanCordix.Coeffect

@@ -315,12 +315,13 @@ def SameFiber s n st x : Prop :=
 
 ### 8.3 模块转正
 
-完成 8.1 和 8.2 后：
+已完成：
 
-- 删除 `parallel development` 注释；
-- 调整 `LeanCordix.lean` import；
-- 更新 README；
-- 决定是否替换旧 `FullCalculus` / `Global` / `Independence`。
+- 删除 `Faithful.lean` 的 `parallel development` 注释，改为 canonical full-context model；
+- 在 `LeanCordix.lean` 根注释中标注 `Faithful` 为 canonical 模型，旧模块作为 legacy dependencies 保留；
+- 更新 README：新增 `LeanCordix.Faithful` 条目、Scope 条目，并更新 future work 说明。
+
+决定：暂不删除旧 `FullCalculus` / `Global` / `Independence`，因为 `Faithful` 仍复用 `Full.StepKind`、iterator independence 等基础设施；后续若把公共基础设施抽离，可以再清理 legacy 模块。
 
 ## 9. 推荐的继续顺序
 
