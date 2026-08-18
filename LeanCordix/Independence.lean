@@ -202,6 +202,195 @@ theorem State.applyAcc_psi_commute_of_indep {s : State N K E V} (st : Step s)
     simpa [hκm_eq] using h
   exact hind.1 hn_mem' hm_mem'
 
+/-- `tableAt` is insensitive to the order of `set` operations at distinct
+names. -/
+theorem State.tableAt_set_set_comm {r : Registry N K V E} {a : CoefCtx K V}
+    {n m : N} (hmn : n ≠ m) (f g : Fiber N K V E) (x : N) :
+    State.tableAt ⟨set (set r m g) n f, a⟩ x =
+      State.tableAt ⟨set (set r n f) m g, a⟩ x := by
+  by_cases hxn : x = n
+  · subst x
+    simp only [State.tableAt]
+    rw [lookup_set_ne (set r n f) m n g hmn]
+    simp
+  · by_cases hxm : x = m
+    · subst x
+      simp only [State.tableAt]
+      rw [lookup_set_ne (set r m g) n m f (Ne.symm hmn)]
+      simp
+    · simp only [State.tableAt]
+      rw [lookup_set_ne (set r m g) n x f hxn]
+      rw [lookup_set_ne r m x g hxm]
+      rw [lookup_set_ne (set r n f) m x g hxm]
+      rw [lookup_set_ne r n x f hxn]
+
+/-- Full recovery commutes with a table write at a different name, up to
+`≈`: the two operations touch distinct names. -/
+theorem State.recoverAcc_writeTable_approx {s : State N K E V} {n m : N}
+    (hmn : n ≠ m) (δ : CoefCtx K V) :
+    State.Approx (State.recoverAcc (State.writeTable s m δ) n)
+      (State.writeTable (State.recoverAcc s n) m δ) := by
+  constructor
+  · rw [State.recoverAcc_writeTable_ambient hmn δ]
+    cases h : lookup (State.recoverAcc s n).reg m <;> simp [State.writeTable, h]
+  · intro x
+    by_cases hn : (lookup s.reg n).isSome
+    · rcases Option.isSome_iff_exists.mp hn with ⟨f, hf⟩
+      by_cases hm : (lookup s.reg m).isSome
+      · rcases Option.isSome_iff_exists.mp hm with ⟨g, hg⟩
+        cases hlc : f.lc with
+        | inactive o =>
+            simp [State.recoverAcc, State.writeTable, hf, hlc, hg, lookup_set_ne, hmn]
+        | loading i κ v =>
+            have hf' : lookup (set s.reg m { g with table := δ }) n = some f := by
+              rw [lookup_set_ne s.reg m n ({ g with table := δ }) hmn]
+              exact hf
+            rw [State.writeTable_eq_of_lookup hg]
+            rw [State.recoverAcc_eq_of_lookup hf']
+            have hg' : lookup (State.recoverAcc s n).reg m = some g := by
+              rw [State.lookup_recoverAcc_ne hmn]
+              exact hg
+            rw [State.writeTable_eq_of_lookup hg']
+            rw [State.recoverAcc_eq_of_lookup hf]
+            simp [hlc]
+            exact State.tableAt_set_set_comm hmn
+              { f with table := κ f.table, lc := Lifecycle.loading i κ v }
+              { g with table := δ } x
+        | active κ v =>
+            have hf' : lookup (set s.reg m { g with table := δ }) n = some f := by
+              rw [lookup_set_ne s.reg m n ({ g with table := δ }) hmn]
+              exact hf
+            rw [State.writeTable_eq_of_lookup hg]
+            rw [State.recoverAcc_eq_of_lookup hf']
+            have hg' : lookup (State.recoverAcc s n).reg m = some g := by
+              rw [State.lookup_recoverAcc_ne hmn]
+              exact hg
+            rw [State.writeTable_eq_of_lookup hg']
+            rw [State.recoverAcc_eq_of_lookup hf]
+            simp [hlc]
+            exact State.tableAt_set_set_comm hmn
+              { f with table := κ f.table, lc := Lifecycle.active κ v }
+              { g with table := δ } x
+        | unloading κ v o =>
+            have hf' : lookup (set s.reg m { g with table := δ }) n = some f := by
+              rw [lookup_set_ne s.reg m n ({ g with table := δ }) hmn]
+              exact hf
+            rw [State.writeTable_eq_of_lookup hg]
+            rw [State.recoverAcc_eq_of_lookup hf']
+            have hg' : lookup (State.recoverAcc s n).reg m = some g := by
+              rw [State.lookup_recoverAcc_ne hmn]
+              exact hg
+            rw [State.writeTable_eq_of_lookup hg']
+            rw [State.recoverAcc_eq_of_lookup hf]
+            simp [hlc]
+            exact State.tableAt_set_set_comm hmn
+              { f with table := κ f.table, lc := Lifecycle.unloading κ v o }
+              { g with table := δ } x
+      · have hm' : lookup s.reg m = none := Option.not_isSome_iff_eq_none.mp hm
+        cases hlc : f.lc <;>
+          simp [State.recoverAcc, State.writeTable, hf, hlc, hm', lookup_set_ne, hmn,
+            Ne.symm hmn]
+    · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+      by_cases hm : (lookup s.reg m).isSome
+      · rcases Option.isSome_iff_exists.mp hm with ⟨g, hg⟩
+        simp [State.recoverAcc, State.writeTable, hn', hg, lookup_set_ne, hmn]
+      · have hm' : lookup s.reg m = none := Option.not_isSome_iff_eq_none.mp hm
+        simp [State.recoverAcc, State.writeTable, hn', hm']
+
+/-- Full recovery commutes with a step acting on another fiber, up to `≈`.
+This is the `State.recoverAcc` analogue of `State.applyAcc_psi_commute` and
+the local engine of Theorem 61 once the tracked fiber may have written its
+own table. -/
+theorem State.recoverAcc_psi_commute_approx {s : State N K E V} (st : Step s)
+    {n : N} (hne : n ≠ st.name)
+    (hcomm : ∀ {κn κm : CoefCtx K V → CoefCtx K V},
+        State.accAt s n = κn →
+        (∃ f, lookup s.reg st.name = some f ∧ Lifecycle.acc f.lc = κm) →
+        κn ∘ κm = κm ∘ κn) :
+    State.Approx (State.recoverAcc (Step.psi st s) n)
+      (Step.psi st (State.recoverAcc s n)) := by
+  cases st with
+  | oInsert m c p hn hp hdisj => simpa [Step.psi] using State.Approx.refl (State.recoverAcc s n)
+  | oRetire m f hf => simpa [Step.psi] using State.Approx.refl (State.recoverAcc s n)
+  | oRemove m f o hf hl hchild => simpa [Step.psi] using State.Approx.refl (State.recoverAcc s n)
+  | lBegin m f v hf hl ht => simpa [Step.psi] using State.Approx.refl (State.recoverAcc s n)
+  | lIter m f ι κ v ι' δ h hreach hf hl ht hstep =>
+      change State.Approx (State.recoverAcc (State.writeTable s m δ) n)
+        (State.writeTable (State.recoverAcc s n) m δ)
+      exact State.recoverAcc_writeTable_approx hne δ
+  | lFinish m f ι κ v δ h hreach hf hl ht hstep =>
+      change State.Approx (State.recoverAcc (State.writeTable s m δ) n)
+        (State.writeTable (State.recoverAcc s n) m δ)
+      exact State.recoverAcc_writeTable_approx hne δ
+  | lRaise m f ι κ v e hreach hf hl hstep => simpa [Step.psi] using State.Approx.refl (State.recoverAcc s n)
+  | lDivertAbort m f ι κ v hreach hf hl ht => simpa [Step.psi] using State.Approx.refl (State.recoverAcc s n)
+  | lDivertLand m f ι κ v δ h c hreach hf hl ht hstep =>
+      change State.Approx (State.recoverAcc (State.writeTable s m δ) n)
+        (State.writeTable (State.recoverAcc s n) m δ)
+      exact State.recoverAcc_writeTable_approx hne δ
+  | lLeave m f κ v hf hl ht => simpa [Step.psi] using State.Approx.refl (State.recoverAcc s n)
+  | lUnload m f κ v o hf hl hg =>
+      have hcomm' : State.accAt s n ∘ κ = κ ∘ State.accAt s n := by
+        exact hcomm (rfl) ⟨f, hf, by rw [hl]; rfl⟩
+      by_cases hn : (lookup s.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hn with ⟨fn, hfn⟩
+        cases hlc : fn.lc with
+        | inactive o =>
+            constructor <;>
+              simp [Step.psi, State.recoverAcc, hfn, hlc, hne]
+        | loading i κn vn =>
+            constructor
+            · have haccn : State.accAt s n = κn := by
+                simp [State.accAt_eq hfn, hlc, Lifecycle.acc]
+              simp [Step.psi, State.recoverAcc, hfn, hlc, hne]
+              exact congrFun (by simpa [haccn] using hcomm') s.ambient
+            · intro x
+              simp [Step.psi, State.recoverAcc, hfn, hlc, hne]
+              rfl
+        | active κn vn =>
+            constructor
+            · have haccn : State.accAt s n = κn := by
+                simp [State.accAt_eq hfn, hlc, Lifecycle.acc]
+              simp [Step.psi, State.recoverAcc, hfn, hlc, hne]
+              exact congrFun (by simpa [haccn] using hcomm') s.ambient
+            · intro x
+              simp [Step.psi, State.recoverAcc, hfn, hlc, hne]
+              rfl
+        | unloading κn vn on =>
+            constructor
+            · have haccn : State.accAt s n = κn := by
+                simp [State.accAt_eq hfn, hlc, Lifecycle.acc]
+              simp [Step.psi, State.recoverAcc, hfn, hlc, hne]
+              exact congrFun (by simpa [haccn] using hcomm') s.ambient
+            · intro x
+              simp [Step.psi, State.recoverAcc, hfn, hlc, hne]
+              rfl
+      · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+        constructor <;> simp [Step.psi, State.recoverAcc, hn', hne]
+
+/-- **Theorem 61, step commutation, full-recovery form.**  If the component
+iterators of `n` and of the step's acting fiber are independent and the
+accumulated maps lie in the corresponding transformation monoids, then full
+recovery at `n` commutes with the step's `Ψ` up to `≈`. -/
+theorem State.recoverAcc_psi_commute_approx_of_indep {s : State N K E V}
+    (st : Step s) {n : N} (hne : n ≠ st.name)
+    (iterOf : N → Iterator (CoefCtx K V) E)
+    (hind : Iterator.Independent (iterOf n) (iterOf st.name))
+    (hn_mem : Iterator.InTransformMonoid (iterOf n) (State.accAt s n))
+    (hm_mem : ∀ f, lookup s.reg st.name = some f →
+        Iterator.InTransformMonoid (iterOf st.name) (Lifecycle.acc f.lc)) :
+    State.Approx (State.recoverAcc (Step.psi st s) n)
+      (Step.psi st (State.recoverAcc s n)) := by
+  refine State.recoverAcc_psi_commute_approx st hne ?_
+  intro κn κm hκn hκm
+  rcases hκm with ⟨f, hf, hκm_eq⟩
+  have hn_mem' : Iterator.InTransformMonoid (iterOf n) κn := by
+    simpa [hκn] using hn_mem
+  have hm_mem' : Iterator.InTransformMonoid (iterOf st.name) κm := by
+    have h := hm_mem f hf
+    simpa [hκm_eq] using h
+  exact hind.1 hn_mem' hm_mem'
+
 end Full
 
 end Cordix

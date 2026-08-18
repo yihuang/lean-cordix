@@ -160,6 +160,52 @@ theorem State.applyAcc_of_loading_id {s : State N K E V} {n : N}
       have hl' : lc = .loading comp.iter id v := by simpa using hl
       simp [State.applyAcc, hf, hl']
 
+/-- The ambient component of `recoverAcc` at a present fiber. -/
+theorem State.recoverAcc_ambient_eq {s : State N K E V} {n : N} {f : Fiber N K V E}
+    (hf : lookup s.reg n = some f) :
+    (State.recoverAcc s n).ambient = Lifecycle.acc f.lc s.ambient := by
+  cases hlc : f.lc <;> simp [State.recoverAcc, hf, hlc, Lifecycle.acc]
+
+/-- `recoverAcc` does not move the ambient context when the fiber is
+absent. -/
+theorem State.recoverAcc_ambient_of_absent {s : State N K E V} {n : N}
+    (hn : lookup s.reg n = none) :
+    (State.recoverAcc s n).ambient = s.ambient := by
+  simp [State.recoverAcc, hn]
+
+/-- `recoverAcc` at `n` leaves the lookup at a different name unchanged. -/
+theorem State.lookup_recoverAcc_ne {s : State N K E V} {n m : N}
+    (hmn : n ≠ m) :
+    lookup (State.recoverAcc s n).reg m = lookup s.reg m := by
+  by_cases hn : (lookup s.reg n).isSome
+  · rcases Option.isSome_iff_exists.mp hn with ⟨f, hf⟩
+    cases hlc : f.lc <;>
+      simp [State.recoverAcc, hf, hlc, lookup_set_ne, Ne.symm hmn]
+  · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+    simp [State.recoverAcc, hn']
+
+/-- The ambient component of `recoverAcc` commutes with `writeTable` at a
+different name. -/
+theorem State.recoverAcc_writeTable_ambient {s : State N K E V} {n m : N}
+    (hmn : n ≠ m) (δ : CoefCtx K V) :
+    (State.recoverAcc (State.writeTable s m δ) n).ambient =
+      (State.recoverAcc s n).ambient := by
+  by_cases hn : (lookup s.reg n).isSome
+  · rcases Option.isSome_iff_exists.mp hn with ⟨f, hf⟩
+    by_cases hm : (lookup s.reg m).isSome
+    · rcases Option.isSome_iff_exists.mp hm with ⟨g, hg⟩
+      cases hlc : f.lc <;>
+        simp [State.recoverAcc, State.writeTable, hf, hlc, hg, lookup_set_ne, hmn]
+    · have hm' : lookup s.reg m = none := Option.not_isSome_iff_eq_none.mp hm
+      cases hlc : f.lc <;>
+        simp [State.recoverAcc, State.writeTable, hf, hlc, hm']
+  · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+    by_cases hm : (lookup s.reg m).isSome
+    · rcases Option.isSome_iff_exists.mp hm with ⟨g, hg⟩
+      simp [State.recoverAcc, State.writeTable, hn', hg, lookup_set_ne, hmn]
+    · have hm' : lookup s.reg m = none := Option.not_isSome_iff_eq_none.mp hm
+      simp [State.recoverAcc, State.writeTable, hn', hm']
+
 /-- `recoverAcc` at a present fiber is determined by that fiber's lifecycle. -/
 theorem State.recoverAcc_eq_of_lookup {s : State N K E V} {n : N} {f : Fiber N K V E}
     (hf : lookup s.reg n = some f) :
