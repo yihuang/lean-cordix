@@ -151,6 +151,14 @@ def sigmaOf {N : Type} {K : Type} {V : K → Type u} {E : Type}
     | .active _ _ => p.2.table k <|> acc
     | _ => acc
 
+/-- The **raw** coeffect context of a registry: the union of every fiber's
+table, regardless of lifecycle.  This is the table content of the paper's
+full context `Γ∞`; the active-only `sigmaOf` remains the context read by the
+rules. -/
+def rawSigma {N : Type} {K : Type} {V : K → Type u} {E : Type}
+    (r : Registry N K V E) : CoefCtx K V :=
+  fun k => r.foldr (init := none) fun p acc => p.2.table k <|> acc
+
 /-- The provider of a key: the active fiber whose table defines it. -/
 def providerOf {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
     (r : Registry N K V E) (k : K) : Option N :=
@@ -191,10 +199,12 @@ structure State (N : Type) (K : Type) (E : Type) (V : K → Type u) where
 
 namespace State
 
-/-- The full context of a faithful state. -/
+/-- The full context of a faithful state: ambient paired with the raw union
+of every fiber's table (matching the paper's `Γ∞`, not the active-only
+`Σ_γ`). -/
 def fullCtx {N : Type} {K : Type} {E : Type} {V : K → Type u}
     (s : State N K E V) : Ctx K V :=
-  (s.ambient, Faithful.sigmaOf s.reg)
+  (s.ambient, Faithful.rawSigma s.reg)
 
 /-- The coeffect context of a faithful state. -/
 def sigmaOf {N : Type} {K : Type} {E : Type} {V : K → Type u}
