@@ -324,8 +324,115 @@ def ConfinedEffect {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
   ∃ f, lookup s.reg n = some f ∧
     (∀ k, k ∉ f.comp.prov → rawSigma s.reg k = δ.2 k) ∧
     (∀ k, k ∉ f.comp.prov → f.table k = none) ∧
-    (∀ m g, lookup s.reg m = some g → m ≠ n →
-      ∀ k ∈ f.comp.prov, g.table k = none)
+    (∀ p ∈ s.reg, p.1 ≠ n →
+      ∀ k ∈ f.comp.prov, p.2.table k = none)
+
+/-- If every fiber's table is `none` at `k`, then the raw sigma is `none` at
+`k`. -/
+theorem rawSigma_eq_none_of_all_none {N : Type} {K : Type} {V : K → Type u} {E : Type}
+    {r : Registry N K V E} {k : K}
+    (h : ∀ p ∈ r, p.2.table k = none) : rawSigma r k = none := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      simp [rawSigma, h p (by simp)]
+      exact (by simpa [rawSigma] using ih (fun q hq => h q (by simp [hq])))
+
+/-- Replacing `n`'s table with `t` makes the raw sigma at `k` equal `t k`,
+provided no other fiber defines `k`. -/
+theorem rawSigma_set_table_eq_new {N : Type} [DecidableEq N] {K : Type} {V : K → Type u}
+    {E : Type} {r : Registry N K V E} {n : N} {g : Fiber N K V E}
+    {t : CoefCtx K V} {k : K}
+    (hnodup : NodupKeys r) (hg : lookup r n = some g)
+    (hdisj : ∀ p ∈ r, p.1 ≠ n → p.2.table k = none) :
+    rawSigma (set r n { g with table := t }) k = t k := by
+  induction r with
+  | nil => cases hg
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · have hp' : p.2 = g := by simpa [lookup, hp] using hg
+        have hnodup_cons : List.Nodup (p.1 :: rest.map (fun q => q.1)) := by
+          simpa [NodupKeys] using hnodup
+        have hnmem : p.1 ∉ rest.map (fun q => q.1) :=
+          (List.nodup_cons.mp hnodup_cons).1
+        simp [set, hp, rawSigma]
+        by_cases ht : t k = none
+        · have hrest_none : rawSigma rest k = none := by
+            apply rawSigma_eq_none_of_all_none
+            intro q hq
+            have hqne : q.1 ≠ n := by
+              intro hqn
+              apply hnmem
+              rw [List.mem_map]
+              exact ⟨q, hq, hqn.trans hp.symm⟩
+            exact hdisj q (by simp [hq]) hqne
+          simp [ht]
+          simpa [rawSigma] using hrest_none
+        · cases ht' : t k with
+          | none => simp [ht'] at ht
+          | some v => simp [ht']
+      · have hnodup_rest : NodupKeys rest := by
+          have hnodup_cons : List.Nodup (p.1 :: rest.map (fun q => q.1)) := by
+            simpa [NodupKeys] using hnodup
+          exact (List.nodup_cons.mp hnodup_cons).2
+        have hg_rest : lookup rest n = some g := by
+          simpa [lookup, hp] using hg
+        have hdisj_rest : ∀ q ∈ rest, q.1 ≠ n → q.2.table k = none := by
+          intro q hq hqn
+          exact hdisj q (by simp [hq]) hqn
+        have ih' := ih hnodup_rest hg_rest hdisj_rest
+        have hp_table : p.2.table k = none := hdisj p (by simp) hp
+        simp [set, hp, rawSigma, hp_table]
+        simpa [rawSigma] using ih'
+
+/-- Replacing `n`'s table with `t` does not change the raw sigma at `k` when
+both the old and new tables are `none` at `k`. -/
+theorem rawSigma_set_table_eq_old {N : Type} [DecidableEq N] {K : Type}
+    {V : K → Type u} {E : Type} {r : Registry N K V E} {n : N}
+    {g : Fiber N K V E} {t : CoefCtx K V} {k : K}
+    (hnodup : NodupKeys r) (hg : lookup r n = some g)
+    (ht : t k = none) (hold : g.table k = none) :
+    rawSigma (set r n { g with table := t }) k = rawSigma r k := by
+  induction r with
+  | nil => cases hg
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · have hp' : p.2 = g := by simpa [lookup, hp] using hg
+        simp [set, hp, rawSigma, ht, hold, hp']
+      · have hnodup_rest : NodupKeys rest := by
+          have hnodup_cons : List.Nodup (p.1 :: rest.map (fun q => q.1)) := by
+            simpa [NodupKeys] using hnodup
+          exact (List.nodup_cons.mp hnodup_cons).2
+        have hg_rest : lookup rest n = some g := by
+          simpa [lookup, hp] using hg
+        have ih' := ih hnodup_rest hg_rest
+        simp [set, hp, rawSigma]
+        exact congrArg (fun x => (p.2.table k).or x) (by simpa [rawSigma] using ih')
+
+/-- Under confinement, writing an effect preserves the raw full-context
+sigma. -/
+theorem rawSigma_writeEffect_of_confined {s : State N K E V} {n : N} {δ : Ctx K V}
+    (hnodup : NodupKeys s.reg) (hconf : ConfinedEffect s n δ) :
+    rawSigma (State.writeEffect s n δ).reg = δ.2 := by
+  rcases hconf with ⟨f, hf, hout, hsupport, hdisj⟩
+  funext k
+  by_cases hk : k ∈ f.comp.prov
+  · have hnew : rawSigma (State.writeEffect s n δ).reg k =
+        splitTable f.comp.prov δ.2 k := by
+      simp [State.writeEffect, hf]
+      apply rawSigma_set_table_eq_new hnodup hf
+      intro p hp pne
+      exact hdisj p hp pne k hk
+    have hsplit : splitTable f.comp.prov δ.2 k = δ.2 k := by
+      simp [splitTable, hk]
+    rw [hnew, hsplit]
+  · have hnew : rawSigma (State.writeEffect s n δ).reg k = rawSigma s.reg k := by
+      simp [State.writeEffect, hf]
+      apply rawSigma_set_table_eq_old hnodup hf
+      · simp [splitTable, hk]
+      · exact hsupport k hk
+    rw [hnew]
+    exact hout k hk
 
 /-! ## Faithful type-level step records -/
 
