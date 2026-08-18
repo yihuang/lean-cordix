@@ -220,6 +220,22 @@ def relied {N : Type} [DecidableEq N] {K : Type} {E : Type} {V : K → Type u}
     (s : State N K E V) (n : N) : Prop :=
   Faithful.relied s.reg n
 
+/-- The full-context accumulator carried by a fiber at a state; `id` when the
+fiber is absent. -/
+def accAt {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
+    (s : State N K E V) (n : N) : Ctx K V → Ctx K V :=
+  match lookup s.reg n with
+  | some f => Lifecycle.acc f.lc
+  | none => id
+
+/-- `accAt` reads the lifecycle accumulator of the fiber found in the
+registry. -/
+theorem accAt_eq {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
+    {s : State N K E V} {n : N} {f : Fiber N K V E}
+    (hf : lookup s.reg n = some f) :
+    State.accAt s n = Lifecycle.acc f.lc := by
+  simp [State.accAt, hf]
+
 /-- **Faithful full recovery** `κ_n(s)`.  Apply the fiber's accumulator to
 the full context `(ambient, sigma)`; the recovered ambient is the first
 component, and the fiber's own table is emptied (its contribution has been
@@ -256,6 +272,21 @@ theorem recover_of_loading_id {s : State N K E V} {n : N}
         simpa [htable', hl'] using hf
       simp [State.recover, hf, htable', hl', State.fullCtx,
         set_eq_self_of_lookup_eq hf']
+
+/-- Write a table at `n`, leaving the ambient unchanged. -/
+def writeTable {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
+    (s : State N K E V) (n : N) (δ : CoefCtx K V) : State N K E V :=
+  match lookup s.reg n with
+  | some g => ⟨set s.reg n { g with table := δ }, s.ambient⟩
+  | none => s
+
+/-- Write an effect at `n`: the sigma component becomes the fiber's table and
+the ambient component becomes the new ambient. -/
+def writeEffect {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
+    (s : State N K E V) (n : N) (δ : Ctx K V) : State N K E V :=
+  match lookup s.reg n with
+  | some g => ⟨set s.reg n { g with table := δ.2 }, δ.1⟩
+  | none => s
 
 end State
 
@@ -369,17 +400,17 @@ table, the ambient component into the ambient context, applies the
 accumulator at `L-Unload`, and is the identity elsewhere. -/
 def psi : Step s → State N K E V → State N K E V
   | lIter n f ι κ v ι' δ h hreach hf hl ht hstep, x =>
-      match lookup x.reg n with
-      | some g => ⟨set x.reg n { g with table := δ.2 }, δ.1⟩
-      | none => x
+      match Iterator.step ι (State.fullCtx x) with
+      | .ok (δ', _, _) => State.writeEffect x n δ'
+      | .error _ => x
   | lFinish n f ι κ v δ h hreach hf hl ht hstep, x =>
-      match lookup x.reg n with
-      | some g => ⟨set x.reg n { g with table := δ.2 }, δ.1⟩
-      | none => x
+      match Iterator.step ι (State.fullCtx x) with
+      | .ok (δ', _, _) => State.writeEffect x n δ'
+      | .error _ => x
   | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep, x =>
-      match lookup x.reg n with
-      | some g => ⟨set x.reg n { g with table := δ.2 }, δ.1⟩
-      | none => x
+      match Iterator.step ι (State.fullCtx x) with
+      | .ok (δ', _, _) => State.writeEffect x n δ'
+      | .error _ => x
   | lUnload n f κ v o hf hl hg, x =>
       match lookup x.reg n with
       | some g => ⟨x.reg, (κ (State.fullCtx x)).1⟩
