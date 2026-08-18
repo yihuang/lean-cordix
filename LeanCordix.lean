@@ -1,23 +1,17 @@
 -- This module serves as the root of the `LeanCordix` library.
 -- Import modules here that should be built as part of the library.
 --
--- `LeanCordix.Faithful` is the canonical full-context model.  The earlier
--- `FullCalculus` / `Global` / `Independence` modules remain in the build as
--- legacy dependencies (e.g. `Full.StepKind`, iterator independence, and the
--- old sigmaOf-only development).
+-- The canonical full-context model is split into `Basic`, `Step`, `Approx`,
+-- `Recovery`, and `Trace`.  It depends on the shared bottom layers
+-- (`Revertible`, `Coeffect`, `Context`, `FullCtx`, `Iterator`, and the
+-- standalone `StepKind`/iterator-independence infrastructure).
 import LeanCordix.Basic
 import LeanCordix.Revertible
 import LeanCordix.Coeffect
 import LeanCordix.Context
 import LeanCordix.FullCtx
 import LeanCordix.Iterator
-import LeanCordix.Calculus
-import LeanCordix.FullCalculus
-import LeanCordix.TraceModel
-import LeanCordix.Equivariance
-import LeanCordix.Invariance
-import LeanCordix.Global
-import LeanCordix.Independence
-import LeanCordix.FullContext
-import LeanCordix.Faithful
-import LeanCordix.Termination
+import LeanCordix.Step
+import LeanCordix.Approx
+import LeanCordix.Recovery
+import LeanCordix.Trace
