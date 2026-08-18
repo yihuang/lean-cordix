@@ -3342,6 +3342,59 @@ def SameProvision {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
   ∀ gx gy, lookup (State.recover s n).reg st.name = some gx →
     lookup x.reg st.name = some gy → gx.comp.prov = gy.comp.prov
 
+/-- Combined presence/provision agreement for the fiber acted on by `st`.
+This packages `SamePresence` and `SameProvision` into one side condition. -/
+def SameFiber {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
+    {V : K → Type u} {E : Type}
+    (s : State N K E V) (n : N) (st : Step s) (x : State N K E V) : Prop :=
+  match lookup (State.recover s n).reg st.name, lookup x.reg st.name with
+  | some gx, some gy => gx.comp.prov = gy.comp.prov
+  | none, none => True
+  | _, _ => False
+
+/-- `SameFiber` implies `SamePresence`. -/
+theorem samePresence_of_sameFiber {s : State N K E V} {n : N} {st : Step s}
+    {x : State N K E V} (hf : SameFiber s n st x) : SamePresence s n st x := by
+  unfold SamePresence
+  unfold SameFiber at hf
+  cases hrec : lookup (State.recover s n).reg st.name with
+  | none =>
+      cases hx : lookup x.reg st.name with
+      | none => simp [hrec, hx]
+      | some gy => simp [hrec, hx] at hf
+  | some gx =>
+      cases hx : lookup x.reg st.name with
+      | none => simp [hrec, hx] at hf
+      | some gy => simp [hrec, hx, hf]
+
+/-- `SameFiber` implies `SameProvision`. -/
+theorem sameProvision_of_sameFiber {s : State N K E V} {n : N} {st : Step s}
+    {x : State N K E V} (hf : SameFiber s n st x) : SameProvision s n st x := by
+  intro gx gy hgx hgy
+  unfold SameFiber at hf
+  rw [hgx, hgy] at hf
+  exact hf
+
+/-- `SamePresence` and `SameProvision` together imply `SameFiber`. -/
+theorem sameFiber_of_samePresence_sameProvision {s : State N K E V} {n : N}
+    {st : Step s} {x : State N K E V}
+    (hdom : SamePresence s n st x) (hprov : SameProvision s n st x) :
+    SameFiber s n st x := by
+  unfold SameFiber
+  by_cases hx : (lookup (State.recover s n).reg st.name).isSome
+  · have hy : (lookup x.reg st.name).isSome := hdom.mp hx
+    rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+    rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+    simp [hgx, hgy]
+    exact hprov gx gy hgx hgy
+  · have hxn : lookup (State.recover s n).reg st.name = none :=
+      Option.not_isSome_iff_eq_none.mp hx
+    have hy : ¬ (lookup x.reg st.name).isSome := by
+      intro hy
+      exact hx (hdom.mpr hy)
+    have hyn : lookup x.reg st.name = none := Option.not_isSome_iff_eq_none.mp hy
+    simp [hxn, hyn]
+
 /-- A finite trace of faithful `Step` records. -/
 inductive StepTrace : State N K E V → State N K E V → Type (max 1 u) where
   | nil (s : State N K E V) : StepTrace s s
@@ -3386,10 +3439,8 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
     (hedit : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → st.kind ≠ Full.StepKind.oRemove →
       State.Approx (State.recover (Step.next st) n) (State.recover (Step.psi st s') n))
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hdom : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SamePresence s' n st x)
-    (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameProvision s' n st x)
+    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      SameFiber s' n st x)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
     (hnx : NodupKeys x.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
@@ -3427,13 +3478,13 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
         have hrec_eq : State.recover (Step.next st) n = State.recover s₂ n := by rw [hnext]
         have hedit' := hedit s₁ st hst hno
         have hcomm' := hcomm s₁ st hst
-        have hdom0 := hdom x s₁ st hst
-        have hprov0 := hprov x s₁ st hst
+        have hfiber0 := hfiber x s₁ st hst
         have hdom' : (lookup (State.recover s₁ n).reg st.name).isSome ↔
-            (lookup x.reg st.name).isSome := by simpa [SamePresence] using hdom0
+            (lookup x.reg st.name).isSome := by
+          simpa [SamePresence] using (samePresence_of_sameFiber hfiber0)
         have hprov' : ∀ gx gy, lookup (State.recover s₁ n).reg st.name = some gx →
             lookup x.reg st.name = some gy → gx.comp.prov = gy.comp.prov := by
-          simpa [SameProvision] using hprov0
+          simpa [SameProvision] using (sameProvision_of_sameFiber hfiber0)
         have hpsi := Step.psi_preserves_approx st hI.1 hI.2 hdom' hprov'
         have hpsi_full := Step.psi_preserves_fullCtx st hI.2 hdom' hprov'
           (hnrec s₁) hnx (hconf x s₁ st hst)
@@ -3490,10 +3541,8 @@ theorem recovery_exactness_recoverAcc {N : Type} [DecidableEq N] {K : Type} [Dec
     (hedit : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → st.kind ≠ Full.StepKind.oRemove →
       State.Approx (State.recover (Step.next st) n) (State.recover (Step.psi st s') n))
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hdom : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SamePresence s' n st x)
-    (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameProvision s' n st x)
+    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      SameFiber s' n st x)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
     (hnx : NodupKeys s.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
@@ -3509,7 +3558,7 @@ theorem recovery_exactness_recoverAcc {N : Type} [DecidableEq N] {K : Type} [Dec
     · rw [hrecover_id]
       exact State.Approx.refl s
     · rw [hrecover_id]
-  exact StepTrace.recovery_exactness_aux ht s hI hself hcomm hedit hno_remove hdom hprov
+  exact StepTrace.recovery_exactness_aux ht s hI hself hcomm hedit hno_remove hfiber
     hnrec hnx hdisjrec hdisjx hconf
 
 /-- **Corollary 62 (terminal recovery), faithful form.**  Given a trace in
@@ -3546,10 +3595,8 @@ theorem recovery_exactness_cor62 {N : Type} [DecidableEq N] {K : Type} [Decidabl
       Step.SelfWithdrawsAt st)
     (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hdom : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SamePresence s' n st x)
-    (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameProvision s' n st x)
+    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      SameFiber s' n st x)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
     (hnx : NodupKeys s.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
@@ -3576,7 +3623,7 @@ theorem recovery_exactness_cor62 {N : Type} [DecidableEq N] {K : Type} [Decidabl
     intro s' st hst hno
     exact State.recover_next_approx_recover_psi_of_ne_remove st (Ne.symm hst) hno
   exact StepTrace.recovery_exactness_recoverAcc ht hstart hself hcomm hedit hno_remove
-    hdom hprov hnrec hnx hdisjrec hdisjx hconf
+    hfiber hnrec hnx hdisjrec hdisjx hconf
 
 /-- Convenience form of Cor 62 where the global well-formedness assumptions
 `NodupKeys` and `PairwiseDisjointTables` are used to discharge the four
@@ -3608,16 +3655,14 @@ theorem recovery_exactness_cor62_wellformed {N : Type} [DecidableEq N] {K : Type
       Step.SelfWithdrawsAt st)
     (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hdom : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SamePresence s' n st x)
-    (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameProvision s' n st x)
+    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      SameFiber s' n st x)
     (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
       Step.PsiConfinedAt st (State.recover s' n) x) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
   exact StepTrace.recovery_exactness_cor62 ht hstart iterOf hind hiter hn_mem hm_mem hnodup
     hwithdraw hwithdraw_on hopen hconf_self hself_withdraw hconf_non_self hno_remove
-    hdom hprov
+    hfiber
     (fun s' => State.recover_preserves_nodupKeys (hnodup s'))
     (hnodup s)
     (fun s' => State.recover_preserves_pairwiseDisjointTables (hnodup s') (hdisj s'))

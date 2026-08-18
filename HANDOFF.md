@@ -198,7 +198,7 @@ def Step.SelfWithdrawsAt (st : Step s) : Prop :=
 
 这是 `L-Unload` self-step 的 withdrawal 条件；其他 self-step 自动为 `True`。
 
-### 6.4 `SamePresence` / `SameProvision`
+### 6.4 `SamePresence` / `SameProvision` / `SameFiber`
 
 ```lean
 def SamePresence s n st x : Prop :=
@@ -207,9 +207,19 @@ def SamePresence s n st x : Prop :=
 def SameProvision s n st x : Prop :=
   ∀ gx gy, lookup (State.recover s n).reg st.name = some gx →
     lookup x.reg st.name = some gy → gx.comp.prov = gy.comp.prov
+
+def SameFiber s n st x : Prop :=
+  match lookup (State.recover s n).reg st.name, lookup x.reg st.name with
+  | some gx, some gy => gx.comp.prov = gy.comp.prov
+  | none, none => True
+  | _, _ => False
 ```
 
-这两个 wrapper 是为了绕开 Lean 的一个 elaboration bug：
+`SameFiber` 是 `SamePresence` + `SameProvision` 的合并版本；
+`samePresence_of_sameFiber` / `sameProvision_of_sameFiber` /
+`sameFiber_of_samePresence_sameProvision` 提供双向转换。
+
+`SamePresence` / `SameProvision` wrapper 是为了绕开 Lean 的一个 elaboration bug：
 **局部函数直接返回 `Iff` 时，应用会报 `Function expected`**。
 用 wrapper 后，需要 `Iff` 时再 `simpa [SamePresence]`。
 
@@ -246,7 +256,7 @@ def SameProvision s n st x : Prop :=
 2. 已实现 `StepTrace.recovery_exactness_cor62`：在 independence / withdraw / confined / nodup / disjoint 等全称假设下调用 `recovery_exactness_recoverAcc`。
 3. 已证明 `NodupKeys` / `PairwiseDisjointTables` 在 `Step.psi`、`Step.edit`、`Step.next`、`State.recover` 下的保持（见 5.6）。
 4. 已把 `recovery_exactness_aux` / `recoverAcc` / `cor62` 中全称 `hnx/hdisjx` 改为局部初始假设，并用保持定理在归纳中自动推进。
-5. 已增加 `StepTrace.recovery_exactness_cor62_wellformed`，用全局 well-formedness 消去 `hnrec/hnx/hdisjrec/hdisjx`；仍待消去 `SamePresence` / `SameProvision` / `PsiConfinedAt`。
+5. 已增加 `StepTrace.recovery_exactness_cor62_wellformed`，用全局 well-formedness 消去 `hnrec/hnx/hdisjrec/hdisjx`；并把 `SamePresence` / `SameProvision` 合并为 `SameFiber`。仍待消去 `SameFiber` / `PsiConfinedAt`。
 
 剩余工作是把 Cor 62 的全称 side conditions 从 well-formedness 与 trace 不变量中真正推导出来（见 8.2）。
 
@@ -254,11 +264,10 @@ def SameProvision s n st x : Prop :=
 
 现在仍需从 well-formedness + independence / trace 不变量推导或进一步消去：
 
-- `SamePresence`
-- `SameProvision`
+- `SameFiber`（合并后的 presence + provision 一致）
 - `Step.PsiConfinedAt st (State.recover s n) x`
 
-`NodupKeys` / `PairwiseDisjointTables` 相关 side conditions 已通过保持定理和 `cor62_wellformed` 消去。
+`NodupKeys` / `PairwiseDisjointTables` 相关 side conditions 已通过保持定理和 `cor62_wellformed` 消去；`SamePresence` / `SameProvision` 已合并为 `SameFiber`。
 
 这需要：
 
