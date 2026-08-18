@@ -3507,6 +3507,51 @@ theorem recovery_exactness_cor62 {N : Type} [DecidableEq N] {K : Type} [Decidabl
   exact StepTrace.recovery_exactness_recoverAcc ht hstart hself hcomm hedit hno_remove
     hdom hprov hnrec hnx hdisjrec hdisjx hconf
 
+/-- Convenience form of Cor 62 where the global well-formedness assumptions
+`NodupKeys` and `PairwiseDisjointTables` are used to discharge the four
+redundant `recover`/folded-state side conditions. -/
+theorem recovery_exactness_cor62_wellformed {N : Type} [DecidableEq N] {K : Type}
+    [DecidableEq K] {E : Type} {V : K → Type u} {s t : State N K E V}
+    (ht : StepTrace s t) {n : N} {v : K → Option N}
+    (hstart : ∃ f, lookup s.reg n = some f ∧
+      f.lc = .loading f.comp.iter id v ∧ f.table = fun _ => none)
+    (iterOf : N → Iterator (Ctx K V) E)
+    (hind : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      Iterator.Independent (iterOf n) (iterOf st.name))
+    (hiter : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → iterOf st.name = f.comp.iter)
+    (hn_mem : ∀ (s' : State N K E V),
+      Iterator.InTransformMonoid (iterOf n) (State.accAt s' n))
+    (hm_mem : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f →
+        Iterator.InTransformMonoid (iterOf st.name) (Lifecycle.acc f.lc))
+    (hnodup : ∀ (s' : State N K E V), NodupKeys s'.reg)
+    (hdisj : ∀ (s' : State N K E V), PairwiseDisjointTables s'.reg)
+    (hwithdraw : ∀ (s' : State N K E V), State.Withdraws s' n)
+    (hwithdraw_on : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → State.WithdrawsOn s' n f.comp.prov)
+    (hopen : ∀ (s' : State N K E V),
+      ∃ f, lookup s'.reg n = some f ∧ ∀ o, f.lc ≠ .inactive o)
+    (hconf_self : ∀ (s' : State N K E V) (st : Step s'), st.name = n → Step.Confined st)
+    (hself_withdraw : ∀ (s' : State N K E V) (st : Step s'), st.name = n →
+      Step.SelfWithdrawsAt st)
+    (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
+    (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
+    (hdom : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      SamePresence s' n st x)
+    (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      SameProvision s' n st x)
+    (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      Step.PsiConfinedAt st (State.recover s' n) x) :
+    State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
+  exact StepTrace.recovery_exactness_cor62 ht hstart iterOf hind hiter hn_mem hm_mem hnodup
+    hwithdraw hwithdraw_on hopen hconf_self hself_withdraw hconf_non_self hno_remove
+    hdom hprov
+    (fun s' => State.recover_preserves_nodupKeys (hnodup s'))
+    hnodup
+    (fun s' => State.recover_preserves_pairwiseDisjointTables (hnodup s') (hdisj s'))
+    hdisj hconf
+
 end StepTrace
 
 end Faithful
