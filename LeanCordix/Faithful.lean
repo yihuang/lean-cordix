@@ -120,6 +120,30 @@ def set {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type} :
   | p :: rest, n, f =>
       if p.1 = n then (n, f) :: rest else p :: set rest n f
 
+/-- Lookup after a pointwise update at the same name. -/
+theorem lookup_set_eq {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
+    (r : Registry N K V E) (n : N) (f : Fiber N K V E) :
+    lookup (set r n f) n = some f := by
+  induction r with
+  | nil => simp [set, lookup]
+  | cons p rest ih =>
+      by_cases h : p.1 = n
+      · simp [set, lookup, h]
+      · simp [set, lookup, h, ih]
+
+/-- Lookup after a pointwise update at a different name. -/
+theorem lookup_set_ne {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
+    (r : Registry N K V E) (n m : N) (f : Fiber N K V E) (hne : m ≠ n) :
+    lookup (set r n f) m = lookup r m := by
+  induction r with
+  | nil => simp [set, lookup, Ne.symm hne]
+  | cons p rest ih =>
+      by_cases h : p.1 = n
+      · simp [set, lookup, h, Ne.symm hne]
+      · by_cases hm : p.1 = m
+        · simp [set, lookup, h, hm, hne]
+        · simp [set, lookup, h, hm, ih]
+
 /-- Removal. -/
 def del {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type} :
     Registry N K V E → N → Registry N K V E
