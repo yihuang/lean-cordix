@@ -1573,6 +1573,156 @@ theorem edit_preserves_pairwiseDisjointTables {s x : State N K E V} (st : Step s
       · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
         simpa [Step.edit, hn'] using hdisj
 
+/-- `Step.psi` never changes the lookup at a different name. -/
+theorem psi_preserves_lookup_ne {s x : State N K E V} (st : Step s) {m : N}
+    (hm : m ≠ st.name) : lookup (Step.psi st x).reg m = lookup x.reg m := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simp [Step.psi]
+  | oRetire n f hf => simp [Step.psi]
+  | oRemove n f o hf hl hchild => simp [Step.psi]
+  | lBegin n f v hf hl ht htable => simp [Step.psi]
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simp [Step.psi, hstep_x]
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          by_cases hx : (lookup x.reg n).isSome
+          · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+            simp [Step.psi, hstep_x, hg]
+            unfold State.writeEffect
+            rw [hg]
+            exact lookup_set_ne x.reg n m { g with table := splitTable g.comp.prov δ'.2 } hm'
+          · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            simp [Step.psi, hstep_x, State.writeEffect, hn]
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simp [Step.psi, hstep_x]
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          by_cases hx : (lookup x.reg n).isSome
+          · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+            simp [Step.psi, hstep_x, hg]
+            unfold State.writeEffect
+            rw [hg]
+            exact lookup_set_ne x.reg n m { g with table := splitTable g.comp.prov δ'.2 } hm'
+          · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            simp [Step.psi, hstep_x, State.writeEffect, hn]
+  | lRaise n f ι κ v e hreach hf hl hstep => simp [Step.psi]
+  | lDivertAbort n f ι κ v hreach hf hl ht => simp [Step.psi]
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simp [Step.psi, hstep_x]
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          by_cases hx : (lookup x.reg n).isSome
+          · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+            simp [Step.psi, hstep_x, hg]
+            unfold State.writeEffect
+            rw [hg]
+            exact lookup_set_ne x.reg n m { g with table := splitTable g.comp.prov δ'.2 } hm'
+          · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            simp [Step.psi, hstep_x, State.writeEffect, hn]
+  | lLeave n f κ v hf hl ht => simp [Step.psi]
+  | lUnload n f κ v o hf hl hg =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.psi, hg]
+        unfold State.writeEffect
+        rw [hg]
+        exact lookup_set_ne x.reg n m
+          { g with table := splitTable g.comp.prov (κ (State.fullCtx x)).2 } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.psi, State.writeEffect, hn]
+
+/-- `Step.edit` never changes the lookup at a different name. -/
+theorem edit_preserves_lookup_ne {s x : State N K E V} (st : Step s) {m : N}
+    (hm : m ≠ st.name) : lookup (Step.edit st x).reg m = lookup x.reg m := by
+  cases st with
+  | oInsert n c p hn hp hdisj =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      simp [Step.edit]
+      exact lookup_set_ne x.reg n m (Fiber.mk c p (fun _ => none) false (.inactive none)) hm'
+  | oRetire n f hf =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with retired := true } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | oRemove n f o hf hl hchild =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      simp [Step.edit]
+      exact lookup_del_ne (r := x.reg) (n := n) (m := m) hm'
+  | lBegin n f v hf hl ht htable =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .loading g.comp.iter id v } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .loading ι' (κ ∘ h) v } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .active (κ ∘ h) v } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | lRaise n f ι κ v e hreach hf hl hstep =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .unloading κ v (some e) } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | lDivertAbort n f ι κ v hreach hf hl ht =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .unloading κ v none } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .unloading (κ ∘ h) v none } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | lLeave n f κ v hf hl ht =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .unloading κ v none } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+  | lUnload n f κ v o hf hl hg =>
+      have hm' : m ≠ n := by simpa [Step.name] using hm
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simp [Step.edit, hg]
+        exact lookup_set_ne x.reg n m { g with lc := .inactive o } hm'
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simp [Step.edit, hn]
+
 /-- If a step is confined at its source state, then `PsiConfinedAt` holds
 with both arguments equal to that source state. -/
 theorem psiConfinedAt_self_of_confined {s : State N K E V} (st : Step s)
@@ -3422,6 +3572,13 @@ def foldPsiExcept {s t : State N K E V} (ht : StepTrace s t) (n : N)
   match ht with
   | .nil _ => x
   | .cons st _ ht => foldPsiExcept ht n (if st.name = n then x else Step.psi st x)
+
+/-- A trace never inserts a fiber other than `n`.  Together with the absence
+of `O-Remove`, this keeps the folded state's non-`n` lookups aligned with the
+trace's source states. -/
+def NoNonNInsert {s t : State N K E V} (n : N) : StepTrace s t → Prop
+  | .nil _ => True
+  | .cons st _ ht => (st.name = n ∨ st.kind ≠ Full.StepKind.oInsert) ∧ NoNonNInsert n ht
 
 /-- Trace-local version of the `SameFiber` side condition: at every non-`n`
 step, the folded state `x` has the same fiber (presence and provision) as the

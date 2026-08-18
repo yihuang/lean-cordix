@@ -136,6 +136,9 @@ theorem State.recover_psi_commute_approx_of_indep
 - `Step.next_preserves_pairwiseDisjointTables`
 - `StepTrace.PsiFiberAgrees`
 - `StepTrace.PsiConfinedAgrees`
+- `Step.psi_preserves_lookup_ne`
+- `Step.edit_preserves_lookup_ne`
+- `StepTrace.NoNonNInsert`
 
 这些是 8.2 实例化所需的保持定理；`Step.next_*` 组合了 `edit ∘ psi`。
 
