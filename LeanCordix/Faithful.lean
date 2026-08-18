@@ -3423,6 +3423,26 @@ def foldPsiExcept {s t : State N K E V} (ht : StepTrace s t) (n : N)
   | .nil _ => x
   | .cons st _ ht => foldPsiExcept ht n (if st.name = n then x else Step.psi st x)
 
+/-- Trace-local version of the `SameFiber` side condition: at every non-`n`
+step, the folded state `x` has the same fiber (presence and provision) as the
+step's source state. -/
+def PsiFiberAgrees {s t : State N K E V} (n : N) (x : State N K E V) :
+    StepTrace s t → Prop
+  | .nil _ => True
+  | .cons st _ ht =>
+      (st.name = n ∨ SameFiber s n st x) ∧
+        PsiFiberAgrees n (if st.name = n then x else Step.psi st x) ht
+
+/-- Trace-local version of the `PsiConfinedAt` side condition: at every
+non-`n` step, the recomputed `Ψ` is confined at both the recovered source and
+the current folded state. -/
+def PsiConfinedAgrees {s t : State N K E V} (n : N) (x : State N K E V) :
+    StepTrace s t → Prop
+  | .nil _ => True
+  | .cons st _ ht =>
+      (st.name = n ∨ Step.PsiConfinedAt st (State.recover s n) x) ∧
+        PsiConfinedAgrees n (if st.name = n then x else Step.psi st x) ht
+
 /-- Trace-level faithful recovery exactness, engine.  The side conditions are
 stated universally over the folded state so the induction can move from `x`
 to `Step.psi st x` without re-proving them. -/
@@ -3439,22 +3459,17 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
     (hedit : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → st.kind ≠ Full.StepKind.oRemove →
       State.Approx (State.recover (Step.next st) n) (State.recover (Step.psi st s') n))
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameFiber s' n st x)
+    (hfiber_trace : PsiFiberAgrees n x ht)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
     (hnx : NodupKeys x.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
     (hdisjx : PairwiseDisjointTables x.reg)
-    (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      Step.PsiConfinedAt st (State.recover s' n) x) :
+    (hconf_trace : PsiConfinedAgrees n x ht) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n x) := by
-  revert hnx hdisjx
-  induction ht generalizing x with
+  induction ht generalizing x hnx hdisjx with
   | nil s =>
-      intro hnx hdisjx
       simpa [StepTrace.foldPsiExcept] using hI.1
   | @cons s₁ s₂ s₃ st hnext ht ih =>
-      intro hnx hdisjx
       by_cases hst : st.name = n
       · rcases hno_remove with ⟨hno_self, htail_no⟩
         have hself' := hself s₁ st hst hno_self
@@ -3470,7 +3485,11 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
             exact State.Approx.trans hself' hI.1
           · rw [← hrec_eq]
             exact hfull_self.trans hI.2
-        have htail := ih x hI' htail_no hnx hdisjx
+        rcases hfiber_trace with ⟨_, htail_fiber⟩
+        rcases hconf_trace with ⟨_, htail_conf⟩
+        have htail_fiber' : PsiFiberAgrees n x ht := by simpa [hst] using htail_fiber
+        have htail_conf' : PsiConfinedAgrees n x ht := by simpa [hst] using htail_conf
+        have htail := ih x hI' htail_no htail_fiber' hnx hdisjx htail_conf'
         simpa [StepTrace.foldPsiExcept, hst] using htail
       · have hno : st.kind ≠ Full.StepKind.oRemove := by
           rcases hno_remove with ⟨hno_rem, _⟩
@@ -3478,7 +3497,16 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
         have hrec_eq : State.recover (Step.next st) n = State.recover s₂ n := by rw [hnext]
         have hedit' := hedit s₁ st hst hno
         have hcomm' := hcomm s₁ st hst
-        have hfiber0 := hfiber x s₁ st hst
+        rcases hfiber_trace with ⟨hfiber_head, htail_fiber⟩
+        rcases hconf_trace with ⟨hconf_head, htail_conf⟩
+        have hfiber0 : SameFiber s₁ n st x := by
+          rcases hfiber_head with hst_eq | hfiber0
+          · exact False.elim (hst hst_eq)
+          · exact hfiber0
+        have hconf0 : Step.PsiConfinedAt st (State.recover s₁ n) x := by
+          rcases hconf_head with hst_eq | hconf0
+          · exact False.elim (hst hst_eq)
+          · exact hconf0
         have hdom' : (lookup (State.recover s₁ n).reg st.name).isSome ↔
             (lookup x.reg st.name).isSome := by
           simpa [SamePresence] using (samePresence_of_sameFiber hfiber0)
@@ -3487,7 +3515,7 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
           simpa [SameProvision] using (sameProvision_of_sameFiber hfiber0)
         have hpsi := Step.psi_preserves_approx st hI.1 hI.2 hdom' hprov'
         have hpsi_full := Step.psi_preserves_fullCtx st hI.2 hdom' hprov'
-          (hnrec s₁) hnx (hconf x s₁ st hst)
+          (hnrec s₁) hnx hconf0
         have hfull_edit : State.fullCtx (State.recover (Step.next st) n) =
             State.fullCtx (State.recover (Step.psi st s₁) n) := by
           exact State.fullCtx_of_nodup_of_disjoint (hnrec (Step.next st))
@@ -3498,7 +3526,7 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
           Step.psi_preserves_nodupKeys st (hnrec s₁)
         have hpsi_rec_disj : PairwiseDisjointTables (Step.psi st (State.recover s₁ n)).reg := by
           have hconf_rec_self : Step.PsiConfinedAt st (State.recover s₁ n) (State.recover s₁ n) :=
-            hconf (State.recover s₁ n) s₁ st hst
+            Step.psiConfinedAt_self_of_pair_left st hI.2 hconf0
           exact Step.psi_preserves_pairwiseDisjointTables st (hnrec s₁) (hdisjrec s₁) hconf_rec_self
         have hfull_comm : State.fullCtx (State.recover (Step.psi st s₁) n) =
             State.fullCtx (Step.psi st (State.recover s₁ n)) := by
@@ -3509,7 +3537,7 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
         have hx_nodup' : NodupKeys (Step.psi st x).reg := Step.psi_preserves_nodupKeys st hnx
         have hx_disj' : PairwiseDisjointTables (Step.psi st x).reg := by
           have hconf_x_self : Step.PsiConfinedAt st x x :=
-            Step.psiConfinedAt_self_of_pair_right st hI.2 (hconf x s₁ st hst)
+            Step.psiConfinedAt_self_of_pair_right st hI.2 hconf0
           exact Step.psi_preserves_pairwiseDisjointTables st hnx hdisjx hconf_x_self
         have hI' : State.Approx (State.recover s₂ n) (Step.psi st x) ∧
             State.fullCtx (State.recover s₂ n) = State.fullCtx (Step.psi st x) := by
@@ -3521,7 +3549,9 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
         have htail_no : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht := by
           rcases hno_remove with ⟨_, htail_no⟩
           exact htail_no
-        have htail := ih (Step.psi st x) hI' htail_no hx_nodup' hx_disj'
+        have htail_fiber' : PsiFiberAgrees n (Step.psi st x) ht := by simpa [hst] using htail_fiber
+        have htail_conf' : PsiConfinedAgrees n (Step.psi st x) ht := by simpa [hst] using htail_conf
+        have htail := ih (Step.psi st x) hI' htail_no htail_fiber' hx_nodup' hx_disj' htail_conf'
         simpa [StepTrace.foldPsiExcept, hst] using htail
 
 /-- Faithful Thm 61, trace-level statement with universally quantified side
@@ -3541,14 +3571,12 @@ theorem recovery_exactness_recoverAcc {N : Type} [DecidableEq N] {K : Type} [Dec
     (hedit : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → st.kind ≠ Full.StepKind.oRemove →
       State.Approx (State.recover (Step.next st) n) (State.recover (Step.psi st s') n))
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameFiber s' n st x)
+    (hfiber_trace : PsiFiberAgrees n s ht)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
     (hnx : NodupKeys s.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
     (hdisjx : PairwiseDisjointTables s.reg)
-    (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      Step.PsiConfinedAt st (State.recover s' n) x) :
+    (hconf_trace : PsiConfinedAgrees n s ht) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
   rcases hstart with ⟨f, hf, hl, htbl⟩
   have hrecover_id : State.recover s n = s := State.recover_of_loading_id hf htbl hl
@@ -3558,8 +3586,8 @@ theorem recovery_exactness_recoverAcc {N : Type} [DecidableEq N] {K : Type} [Dec
     · rw [hrecover_id]
       exact State.Approx.refl s
     · rw [hrecover_id]
-  exact StepTrace.recovery_exactness_aux ht s hI hself hcomm hedit hno_remove hfiber
-    hnrec hnx hdisjrec hdisjx hconf
+  exact StepTrace.recovery_exactness_aux ht s hI hself hcomm hedit hno_remove hfiber_trace
+    hnrec hnx hdisjrec hdisjx hconf_trace
 
 /-- **Corollary 62 (terminal recovery), faithful form.**  Given a trace in
 which the tracked fiber `n` starts freshly loading, all other fibers are
@@ -3595,14 +3623,12 @@ theorem recovery_exactness_cor62 {N : Type} [DecidableEq N] {K : Type} [Decidabl
       Step.SelfWithdrawsAt st)
     (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameFiber s' n st x)
+    (hfiber_trace : PsiFiberAgrees n s ht)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
     (hnx : NodupKeys s.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
     (hdisjx : PairwiseDisjointTables s.reg)
-    (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      Step.PsiConfinedAt st (State.recover s' n) x) :
+    (hconf_trace : PsiConfinedAgrees n s ht) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
   have hself : ∀ (s' : State N K E V) (st : Step s'), st.name = n →
       st.kind ≠ Full.StepKind.oRemove →
@@ -3623,7 +3649,7 @@ theorem recovery_exactness_cor62 {N : Type} [DecidableEq N] {K : Type} [Decidabl
     intro s' st hst hno
     exact State.recover_next_approx_recover_psi_of_ne_remove st (Ne.symm hst) hno
   exact StepTrace.recovery_exactness_recoverAcc ht hstart hself hcomm hedit hno_remove
-    hfiber hnrec hnx hdisjrec hdisjx hconf
+    hfiber_trace hnrec hnx hdisjrec hdisjx hconf_trace
 
 /-- Convenience form of Cor 62 where the global well-formedness assumptions
 `NodupKeys` and `PairwiseDisjointTables` are used to discharge the four
@@ -3655,18 +3681,16 @@ theorem recovery_exactness_cor62_wellformed {N : Type} [DecidableEq N] {K : Type
       Step.SelfWithdrawsAt st)
     (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
     (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
-    (hfiber : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      SameFiber s' n st x)
-    (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
-      Step.PsiConfinedAt st (State.recover s' n) x) :
+    (hfiber_trace : PsiFiberAgrees n s ht)
+    (hconf_trace : PsiConfinedAgrees n s ht) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
   exact StepTrace.recovery_exactness_cor62 ht hstart iterOf hind hiter hn_mem hm_mem hnodup
     hwithdraw hwithdraw_on hopen hconf_self hself_withdraw hconf_non_self hno_remove
-    hfiber
+    hfiber_trace
     (fun s' => State.recover_preserves_nodupKeys (hnodup s'))
     (hnodup s)
     (fun s' => State.recover_preserves_pairwiseDisjointTables (hnodup s') (hdisj s'))
-    (hdisj s) hconf
+    (hdisj s) hconf_trace
 
 end StepTrace
 

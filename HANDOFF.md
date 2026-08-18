@@ -134,6 +134,8 @@ theorem State.recover_psi_commute_approx_of_indep
 - `Step.psiConfinedAt_self_of_pair_right`
 - `Step.next_preserves_nodupKeys`
 - `Step.next_preserves_pairwiseDisjointTables`
+- `StepTrace.PsiFiberAgrees`
+- `StepTrace.PsiConfinedAgrees`
 
 这些是 8.2 实例化所需的保持定理；`Step.next_*` 组合了 `edit ∘ psi`。
 
@@ -153,6 +155,8 @@ theorem StepTrace.recovery_exactness_cor62_wellformed
 `recovery_exactness_aux` / `recovery_exactness_recoverAcc` 现在要求 `hself` 只给 `≈`（不需要 fullCtx 等式），`hcomm` 也只给 `≈`；fullCtx 等式由 `hnrec/hnx/hdisjrec/hdisjx` 通过 `State.fullCtx_of_nodup_of_disjoint` 推导。`hself` 还要求 `st.kind ≠ oRemove`（因为 trace 本身排除 `O-Remove`）。`hedit` 是 `≈` 版本，由 `State.recover_next_approx_recover_psi_of_ne_remove` 提供。
 
 `recovery_exactness_aux` 已改为只要求当前 folded state `x` 的局部 `NodupKeys x.reg` / `PairwiseDisjointTables x.reg`，不再要求全称 `hnx/hdisjx`；归纳推进时用 `Step.psi_preserves_nodupKeys` / `Step.psi_preserves_pairwiseDisjointTables` 和 `PsiConfinedAt` self-pair helper 自动保持。`recovery_exactness_recoverAcc` / `recovery_exactness_cor62` 也改为只要求初始 `s` 的局部 `NodupKeys s.reg` / `PairwiseDisjointTables s.reg`。
+
+`SameFiber` / `PsiConfinedAt` 的全称 side conditions 也已改为 trace-local 谓词 `PsiFiberAgrees` / `PsiConfinedAgrees`，它们沿着 `foldPsiExcept` 的折叠路径递归给出每个非 `n` 步所需的 fiber 一致性和 confined-at 条件。
 
 这两个定理使用全称量化的 side conditions：
 
@@ -256,7 +260,8 @@ def SameFiber s n st x : Prop :=
 2. 已实现 `StepTrace.recovery_exactness_cor62`：在 independence / withdraw / confined / nodup / disjoint 等全称假设下调用 `recovery_exactness_recoverAcc`。
 3. 已证明 `NodupKeys` / `PairwiseDisjointTables` 在 `Step.psi`、`Step.edit`、`Step.next`、`State.recover` 下的保持（见 5.6）。
 4. 已把 `recovery_exactness_aux` / `recoverAcc` / `cor62` 中全称 `hnx/hdisjx` 改为局部初始假设，并用保持定理在归纳中自动推进。
-5. 已增加 `StepTrace.recovery_exactness_cor62_wellformed`，用全局 well-formedness 消去 `hnrec/hnx/hdisjrec/hdisjx`；并把 `SamePresence` / `SameProvision` 合并为 `SameFiber`。仍待消去 `SameFiber` / `PsiConfinedAt`。
+5. 已增加 `StepTrace.recovery_exactness_cor62_wellformed`，用全局 well-formedness 消去 `hnrec/hnx/hdisjrec/hdisjx`；并把 `SamePresence` / `SameProvision` 合并为 `SameFiber`。
+6. 已把 `SameFiber` / `PsiConfinedAt` 的全称 side conditions 改为 trace-local 的 `PsiFiberAgrees` / `PsiConfinedAgrees`，沿着 `foldPsiExcept` 递归携带。仍待从更 primitive 的 trace 不变量推导这两个 trace 谓词。
 
 剩余工作是把 Cor 62 的全称 side conditions 从 well-formedness 与 trace 不变量中真正推导出来（见 8.2）。
 
@@ -264,10 +269,10 @@ def SameFiber s n st x : Prop :=
 
 现在仍需从 well-formedness + independence / trace 不变量推导或进一步消去：
 
-- `SameFiber`（合并后的 presence + provision 一致）
-- `Step.PsiConfinedAt st (State.recover s n) x`
+- `PsiFiberAgrees`（即逐点的 `SameFiber`，presence + provision 一致）
+- `PsiConfinedAgrees`（即逐点的 `Step.PsiConfinedAt st (State.recover s n) x`）
 
-`NodupKeys` / `PairwiseDisjointTables` 相关 side conditions 已通过保持定理和 `cor62_wellformed` 消去；`SamePresence` / `SameProvision` 已合并为 `SameFiber`。
+`NodupKeys` / `PairwiseDisjointTables` 相关 side conditions 已通过保持定理和 `cor62_wellformed` 消去；`SamePresence` / `SameProvision` 已合并为 `SameFiber`，并打包进 `PsiFiberAgrees`。
 
 这需要：
 
