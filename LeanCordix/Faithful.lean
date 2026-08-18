@@ -1161,6 +1161,20 @@ theorem set_preserves_sameFiberAt {x y : State N K E V} {n : N} {g : Fiber N K V
     rw [lookup_set_ne x.reg n m g hmn, lookup_set_ne y.reg n m g hmn]
     exact h
 
+/-- Pointwise `set` with possibly different new fibers preserves fiber
+agreement, provided the new fibers agree on their provision. -/
+theorem set_preserves_sameFiberAt_of_prov {x y : State N K E V} {n : N}
+    {gx gy : Fiber N K V E} {m : N} (h : SameFiberAt x y m)
+    (hprov : gx.comp.prov = gy.comp.prov) :
+    SameFiberAt ⟨set x.reg n gx, x.ambient⟩ ⟨set y.reg n gy, y.ambient⟩ m := by
+  by_cases hmn : m = n
+  · subst m
+    unfold SameFiberAt
+    simp [lookup_set_eq, hprov]
+  · unfold SameFiberAt
+    rw [lookup_set_ne x.reg n m gx hmn, lookup_set_ne y.reg n m gy hmn]
+    exact h
+
 /-- `writeEffect` preserves pointwise fiber agreement. -/
 theorem State.writeEffect_preserves_sameFiberAt {x y : State N K E V} {n : N}
     {δx δy : Ctx K V} {m : N}

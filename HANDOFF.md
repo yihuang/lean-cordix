@@ -143,6 +143,7 @@ theorem State.recover_psi_commute_approx_of_indep
 - `sameFiber_eq_sameFiberAt`
 - `sameFiberAt_comm`
 - `set_preserves_sameFiberAt`
+- `set_preserves_sameFiberAt_of_prov`
 - `State.writeEffect_preserves_sameFiberAt`
 - `State.writeEffect_preserves_sameFiberAt_left/right`
 - `Step.psi_preserves_sameFiberAt`
