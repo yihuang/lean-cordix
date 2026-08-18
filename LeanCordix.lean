@@ -11,4 +11,5 @@ import LeanCordix.TraceModel
 import LeanCordix.Equivariance
 import LeanCordix.Invariance
 import LeanCordix.Global
+import LeanCordix.Independence
 import LeanCordix.Termination
