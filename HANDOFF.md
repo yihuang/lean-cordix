@@ -148,6 +148,9 @@ theorem State.recover_psi_commute_approx_of_indep
 - `State.writeEffect_preserves_sameFiberAt_left/right`
 - `Step.psi_preserves_sameFiberAt`
 - `Step.edit_preserves_sameFiberAt`
+- `Step.edit_preserves_sameFiberAt_self_of_not_insert_remove`
+- `sameFiberAt_trans`
+- `StepTrace.PsiFiberAgrees_of_sameFiberAt`
 
 这些是 8.2 实例化所需的保持定理；`Step.next_*` 组合了 `edit ∘ psi`。
 
@@ -281,7 +284,7 @@ def SameFiber s n st x : Prop :=
 
 现在仍需从 well-formedness + independence / trace 不变量推导或进一步消去：
 
-- `PsiFiberAgrees`（即逐点的 `SameFiber`，presence + provision 一致）
+- ✅ `PsiFiberAgrees`：已由 `PsiFiberAgrees_of_sameFiberAt` 从 `SameFiberAt` + `NoNonNInsert` + `hno_remove` 推出
 - `PsiConfinedAgrees`（即逐点的 `Step.PsiConfinedAt st (State.recover s n) x`）
 
 `NodupKeys` / `PairwiseDisjointTables` 相关 side conditions 已通过保持定理和 `cor62_wellformed` 消去；`SamePresence` / `SameProvision` 已合并为 `SameFiber`，并打包进 `PsiFiberAgrees`。

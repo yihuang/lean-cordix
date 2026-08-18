@@ -1148,6 +1148,29 @@ theorem sameFiberAt_comm {x y : State N K E V} {m : N} :
       | none => simp [hx, hy]
       | some gy => simp [hx, hy, eq_comm]
 
+/-- `SameFiberAt` is transitive. -/
+theorem sameFiberAt_trans {x y z : State N K E V} {m : N}
+    (hxy : SameFiberAt x y m) (hyz : SameFiberAt y z m) : SameFiberAt x z m := by
+  unfold SameFiberAt at *
+  cases hx : lookup x.reg m with
+  | none =>
+      cases hy : lookup y.reg m with
+      | none =>
+          cases hz : lookup z.reg m with
+          | none => simp [hx, hz]
+          | some gz => simp [hx, hy, hz] at hyz
+      | some gy => simp [hx, hy] at hxy
+  | some gx =>
+      cases hy : lookup y.reg m with
+      | none => simp [hx, hy] at hxy
+      | some gy =>
+          cases hz : lookup z.reg m with
+          | none => simp [hy, hz] at hyz
+          | some gz =>
+              simp [hx, hy, hz] at hxy hyz
+              simp [hx, hz]
+              exact hxy.trans hyz
+
 /-- Pointwise `set` preserves fiber agreement: both sides receive the same
 new fiber at `n`, and other names are untouched. -/
 theorem set_preserves_sameFiberAt {x y : State N K E V} {n : N} {g : Fiber N K V E}
@@ -2262,6 +2285,88 @@ theorem edit_preserves_sameFiberAt {s x y : State N K E V} (st : Step s) {m : N}
     unfold SameFiberAt
     rw [hx_lookup, hy_lookup]
     exact h
+
+/-- For a non-insert, non-remove step, `edit` agrees with the input state at
+the acting name up to `SameFiberAt`. -/
+theorem edit_preserves_sameFiberAt_self_of_not_insert_remove {s x : State N K E V}
+    (st : Step s) (hno_insert : st.kind ≠ Full.StepKind.oInsert)
+    (hno_remove : st.kind ≠ Full.StepKind.oRemove) :
+    SameFiberAt (Step.edit st x) x st.name := by
+  cases st with
+  | oInsert n c p hn hp hdisj => exact False.elim (hno_insert (by simp [Step.kind]))
+  | oRetire n f hf =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | oRemove n f o hf hl hchild => exact False.elim (hno_remove (by simp [Step.kind]))
+  | lBegin n f v hf hl ht htable =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | lIter n f ι κ v ι' δ hh hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | lFinish n f ι κ v δ hh hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | lRaise n f ι κ v e hreach hf hl hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | lDivertAbort n f ι κ v hreach hf hl ht =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | lDivertLand n f ι κ v δ hh c hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | lLeave n f κ v hf hl ht =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
+  | lUnload n f κ v o hf hl hg =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hg, lookup_set_eq]
+      · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        unfold SameFiberAt
+        simp [Step.edit, Step.name, hn]
 
 /-- If a step is confined at its source state, then `PsiConfinedAt` holds
 with both arguments equal to that source state. -/
@@ -4144,6 +4249,75 @@ def PsiConfinedAgrees {s t : State N K E V} (n : N) (x : State N K E V) :
   | .cons st _ ht =>
       (st.name = n ∨ Step.PsiConfinedAt st (State.recover s n) x) ∧
         PsiConfinedAgrees n (if st.name = n then x else Step.psi st x) ht
+
+/-- If the folded state agrees with the trace's initial state on all non-`n`
+fibers, no non-`n` fiber is inserted, and no fiber is removed, then
+`PsiFiberAgrees` holds. -/
+theorem PsiFiberAgrees_of_sameFiberAt {s t : State N K E V} (ht : StepTrace s t)
+    {n : N} {x : State N K E V}
+    (hx : ∀ m, m ≠ n → SameFiberAt s x m)
+    (hno_insert : NoNonNInsert n ht)
+    (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht) :
+    PsiFiberAgrees n x ht := by
+  induction ht generalizing x with
+  | nil => trivial
+  | @cons s₁ s₂ s₃ st hnext ht ih =>
+      rcases hno_insert with ⟨hst_insert, htail_insert⟩
+      rcases hno_remove with ⟨hst_remove, htail_remove⟩
+      constructor
+      · by_cases hst : st.name = n
+        · exact Or.inl hst
+        · right
+          have hx_st : SameFiberAt s₁ x st.name := hx st.name hst
+          rw [sameFiber_eq_sameFiberAt]
+          unfold SameFiberAt
+          rw [State.lookup_recover_ne (n := n) (m := st.name) (Ne.symm hst)]
+          exact hx_st
+      · let x' : State N K E V := if st.name = n then x else Step.psi st x
+        have hx' : ∀ m, m ≠ n → SameFiberAt (Step.next st) x' m := by
+          intro m hm
+          unfold x'
+          by_cases hst : st.name = n
+          · simp [hst]
+            unfold SameFiberAt
+            rw [Step.factorization]
+            have hpsi : lookup (Step.psi st s₁).reg m = lookup s₁.reg m :=
+              Step.psi_preserves_lookup_ne st (by simpa [hst] using hm)
+            have hedit : lookup (Step.edit st (Step.psi st s₁)).reg m =
+                lookup (Step.psi st s₁).reg m :=
+              Step.edit_preserves_lookup_ne st (by simpa [hst] using hm)
+            rw [hedit, hpsi]
+            exact hx m hm
+          · simp [hst]
+            by_cases hm_st : m = st.name
+            · subst m
+              rw [Step.factorization]
+              have hpsi : SameFiberAt (Step.psi st s₁) (Step.psi st x) st.name :=
+                Step.psi_preserves_sameFiberAt st (hx st.name hst)
+              have hno_i : st.kind ≠ Full.StepKind.oInsert := by
+                rcases hst_insert with h_eq | h_no
+                · exact False.elim (hst h_eq)
+                · exact h_no
+              have hno_r : st.kind ≠ Full.StepKind.oRemove := hst_remove
+              have hedit_self : SameFiberAt (Step.edit st (Step.psi st s₁)) (Step.psi st s₁) st.name :=
+                Step.edit_preserves_sameFiberAt_self_of_not_insert_remove st hno_i hno_r
+              exact sameFiberAt_trans hedit_self hpsi
+            · unfold SameFiberAt
+              rw [Step.factorization]
+              have hpsi_x : lookup (Step.psi st x).reg m = lookup x.reg m :=
+                Step.psi_preserves_lookup_ne st (by exact hm_st)
+              have hpsi_s : lookup (Step.psi st s₁).reg m = lookup s₁.reg m :=
+                Step.psi_preserves_lookup_ne st (by exact hm_st)
+              have hedit : lookup (Step.edit st (Step.psi st s₁)).reg m =
+                  lookup (Step.psi st s₁).reg m :=
+                Step.edit_preserves_lookup_ne st (by exact hm_st)
+              rw [hpsi_x, hedit, hpsi_s]
+              exact hx m hm
+        have hx'' : ∀ m, m ≠ n → SameFiberAt s₂ x' m := by
+          intro m hm
+          simpa [hnext] using hx' m hm
+        have htail := ih hx'' htail_insert htail_remove
+        exact htail
 
 /-- Trace-level faithful recovery exactness, engine.  The side conditions are
 stated universally over the folded state so the induction can move from `x`
