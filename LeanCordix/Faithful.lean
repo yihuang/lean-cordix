@@ -1125,6 +1125,143 @@ theorem State.writeEffect_preserves_fullCtx_of_confined {x y : State N K E V}
   rw [State.fullCtx_writeEffect_of_confined hnx hcx,
       State.fullCtx_writeEffect_of_confined hny hcy]
 
+/-- Fiber agreement at a single name, between two arbitrary states.  This is
+the pointwise invariant that `PsiFiberAgrees` is built from. -/
+def SameFiberAt {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
+    {V : K → Type u} {E : Type} (x y : State N K E V) (m : N) : Prop :=
+  match lookup x.reg m, lookup y.reg m with
+  | some gx, some gy => gx.comp.prov = gy.comp.prov
+  | none, none => True
+  | _, _ => False
+
+/-- `SameFiberAt` is symmetric. -/
+theorem sameFiberAt_comm {x y : State N K E V} {m : N} :
+    SameFiberAt x y m ↔ SameFiberAt y x m := by
+  unfold SameFiberAt
+  cases hx : lookup x.reg m with
+  | none =>
+      cases hy : lookup y.reg m with
+      | none => simp [hx, hy]
+      | some gy => simp [hx, hy]
+  | some gx =>
+      cases hy : lookup y.reg m with
+      | none => simp [hx, hy]
+      | some gy => simp [hx, hy, eq_comm]
+
+/-- Pointwise `set` preserves fiber agreement: both sides receive the same
+new fiber at `n`, and other names are untouched. -/
+theorem set_preserves_sameFiberAt {x y : State N K E V} {n : N} {g : Fiber N K V E}
+    {m : N} (h : SameFiberAt x y m) :
+    SameFiberAt ⟨set x.reg n g, x.ambient⟩ ⟨set y.reg n g, y.ambient⟩ m := by
+  by_cases hmn : m = n
+  · subst m
+    unfold SameFiberAt
+    simp [lookup_set_eq]
+  · unfold SameFiberAt
+    rw [lookup_set_ne x.reg n m g hmn, lookup_set_ne y.reg n m g hmn]
+    exact h
+
+/-- `writeEffect` preserves pointwise fiber agreement. -/
+theorem State.writeEffect_preserves_sameFiberAt {x y : State N K E V} {n : N}
+    {δx δy : Ctx K V} {m : N}
+    (h : SameFiberAt x y m) :
+    SameFiberAt (State.writeEffect x n δx) (State.writeEffect y n δy) m := by
+  by_cases hmn : m = n
+  · subst m
+    unfold SameFiberAt
+    by_cases hx : (lookup x.reg n).isSome
+    · have hy : (lookup y.reg n).isSome := by
+        unfold SameFiberAt at h
+        rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+        rw [hgx] at h
+        by_cases hy' : (lookup y.reg n).isSome
+        · exact hy'
+        · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+          simp [hyn] at h
+      rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+      rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+      simp [State.writeEffect, hgx, hgy, lookup_set_eq]
+      unfold SameFiberAt at h
+      rw [hgx, hgy] at h
+      exact h
+    · have hy : ¬ (lookup y.reg n).isSome := by
+        intro hy
+        unfold SameFiberAt at h
+        have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+        simp [hxn, hgy] at h
+      have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+      have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+      simp [State.writeEffect, hxn, hyn]
+  · have hx_lookup : lookup (State.writeEffect x n δx).reg m = lookup x.reg m := by
+      unfold State.writeEffect
+      by_cases hn : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hn with ⟨g, hg⟩
+        simp [hg]
+        exact lookup_set_ne x.reg n m { g with table := splitTable g.comp.prov δx.2 } hmn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+        simp [hn']
+    have hy_lookup : lookup (State.writeEffect y n δy).reg m = lookup y.reg m := by
+      unfold State.writeEffect
+      by_cases hn : (lookup y.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hn with ⟨g, hg⟩
+        simp [hg]
+        exact lookup_set_ne y.reg n m { g with table := splitTable g.comp.prov δy.2 } hmn
+      · have hn' : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+        simp [hn']
+    unfold SameFiberAt
+    rw [hx_lookup, hy_lookup]
+    exact h
+
+/-- `writeEffect` on the left preserves pointwise fiber agreement. -/
+theorem State.writeEffect_preserves_sameFiberAt_left {x y : State N K E V} {n : N}
+    {δ : Ctx K V} {m : N} (h : SameFiberAt x y m) :
+    SameFiberAt (State.writeEffect x n δ) y m := by
+  by_cases hmn : m = n
+  · subst m
+    unfold SameFiberAt
+    by_cases hx : (lookup x.reg n).isSome
+    · have hy : (lookup y.reg n).isSome := by
+        unfold SameFiberAt at h
+        rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+        rw [hgx] at h
+        by_cases hy' : (lookup y.reg n).isSome
+        · exact hy'
+        · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+          simp [hyn] at h
+      rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+      rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+      simp [State.writeEffect, hgx, hgy, lookup_set_eq]
+      unfold SameFiberAt at h
+      rw [hgx, hgy] at h
+      exact h
+    · have hy : ¬ (lookup y.reg n).isSome := by
+        intro hy
+        unfold SameFiberAt at h
+        have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+        simp [hxn, hgy] at h
+      have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+      have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+      simp [State.writeEffect, hxn, hyn]
+  · have hx_lookup : lookup (State.writeEffect x n δ).reg m = lookup x.reg m := by
+      unfold State.writeEffect
+      by_cases hn : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hn with ⟨g, hg⟩
+        simp [hg]
+        exact lookup_set_ne x.reg n m { g with table := splitTable g.comp.prov δ.2 } hmn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+        simp [hn']
+    unfold SameFiberAt
+    rw [hx_lookup]
+    exact h
+
+/-- `writeEffect` on the right preserves pointwise fiber agreement. -/
+theorem State.writeEffect_preserves_sameFiberAt_right {x y : State N K E V} {n : N}
+    {δ : Ctx K V} {m : N} (h : SameFiberAt x y m) :
+    SameFiberAt x (State.writeEffect y n δ) m := by
+  exact sameFiberAt_comm.mp (State.writeEffect_preserves_sameFiberAt_left (n := n) (δ := δ) (m := m) (sameFiberAt_comm.mpr h))
+
 /-! ## Faithful type-level step records -/
 
 /-- The faithful analogue of `Full.Step`: a step record whose iterator runs
@@ -1637,6 +1774,96 @@ theorem psi_preserves_lookup_ne {s x : State N K E V} (st : Step s) {m : N}
           { g with table := splitTable g.comp.prov (κ (State.fullCtx x)).2 } hm'
       · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
         simp [Step.psi, State.writeEffect, hn]
+
+/-- `Step.psi` preserves pointwise fiber agreement. -/
+theorem psi_preserves_sameFiberAt {s x y : State N K E V} (st : Step s) {m : N}
+    (h : SameFiberAt x y m) : SameFiberAt (Step.psi st x) (Step.psi st y) m := by
+  cases st with
+  | oInsert n c p hn hp hdisj => simpa [Step.psi] using h
+  | oRetire n f hf => simpa [Step.psi] using h
+  | oRemove n f o hf hl hchild => simpa [Step.psi] using h
+  | lBegin n f v hf hl ht htable => simpa [Step.psi] using h
+  | lIter n f ι κ v ι' δ hh hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e =>
+          cases hstep_y : Iterator.step ι (State.fullCtx y) with
+          | error e' => simpa [Step.psi, hstep_x, hstep_y] using h
+          | ok p =>
+              rcases p with ⟨δ', h'', c'⟩
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt_right (n := n) (δ := δ') h)
+      | ok p =>
+          rcases p with ⟨δx, hx', cx'⟩
+          cases hstep_y : Iterator.step ι (State.fullCtx y) with
+          | error e =>
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt_left (n := n) (δ := δx) h)
+          | ok q =>
+              rcases q with ⟨δy, hy', cy'⟩
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt (n := n) (δx := δx) (δy := δy) h)
+  | lFinish n f ι κ v δ hh hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e =>
+          cases hstep_y : Iterator.step ι (State.fullCtx y) with
+          | error e' => simpa [Step.psi, hstep_x, hstep_y] using h
+          | ok p =>
+              rcases p with ⟨δ', h'', c'⟩
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt_right (n := n) (δ := δ') h)
+      | ok p =>
+          rcases p with ⟨δx, hx', cx'⟩
+          cases hstep_y : Iterator.step ι (State.fullCtx y) with
+          | error e =>
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt_left (n := n) (δ := δx) h)
+          | ok q =>
+              rcases q with ⟨δy, hy', cy'⟩
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt (n := n) (δx := δx) (δy := δy) h)
+  | lRaise n f ι κ v e hreach hf hl hstep => simpa [Step.psi] using h
+  | lDivertAbort n f ι κ v hreach hf hl ht => simpa [Step.psi] using h
+  | lDivertLand n f ι κ v δ hh c hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e =>
+          cases hstep_y : Iterator.step ι (State.fullCtx y) with
+          | error e' => simpa [Step.psi, hstep_x, hstep_y] using h
+          | ok p =>
+              rcases p with ⟨δ', h'', c'⟩
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt_right (n := n) (δ := δ') h)
+      | ok p =>
+          rcases p with ⟨δx, hx', cx'⟩
+          cases hstep_y : Iterator.step ι (State.fullCtx y) with
+          | error e =>
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt_left (n := n) (δ := δx) h)
+          | ok q =>
+              rcases q with ⟨δy, hy', cy'⟩
+              simpa [Step.psi, hstep_x, hstep_y] using
+                (State.writeEffect_preserves_sameFiberAt (n := n) (δx := δx) (δy := δy) h)
+  | lLeave n f κ v hf hl ht => simpa [Step.psi] using h
+  | lUnload n f κ v o hf hl hg =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+        by_cases hy : (lookup y.reg n).isSome
+        · rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          simp [Step.psi, hgx, hgy]
+          exact State.writeEffect_preserves_sameFiberAt (n := n)
+            (δx := κ (State.fullCtx x)) (δy := κ (State.fullCtx y)) h
+        · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.psi, hgx, hyn]
+          exact State.writeEffect_preserves_sameFiberAt_left (n := n)
+            (δ := κ (State.fullCtx x)) h
+      · have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        by_cases hy : (lookup y.reg n).isSome
+        · rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          simp [Step.psi, hxn, hgy]
+          exact State.writeEffect_preserves_sameFiberAt_right (n := n)
+            (δ := κ (State.fullCtx y)) h
+        · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.psi, hxn, hyn]
+          exact h
 
 /-- `Step.edit` never changes the lookup at a different name. -/
 theorem edit_preserves_lookup_ne {s x : State N K E V} (st : Step s) {m : N}
@@ -3544,15 +3771,6 @@ theorem sameFiber_of_samePresence_sameProvision {s : State N K E V} {n : N}
       exact hx (hdom.mpr hy)
     have hyn : lookup x.reg st.name = none := Option.not_isSome_iff_eq_none.mp hy
     simp [hxn, hyn]
-
-/-- Fiber agreement at a single name, between two arbitrary states.  This is
-the pointwise invariant that `PsiFiberAgrees` is built from. -/
-def SameFiberAt {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
-    {V : K → Type u} {E : Type} (x y : State N K E V) (m : N) : Prop :=
-  match lookup x.reg m, lookup y.reg m with
-  | some gx, some gy => gx.comp.prov = gy.comp.prov
-  | none, none => True
-  | _, _ => False
 
 /-- `SameFiber` is `SameFiberAt` after recovering `n`. -/
 theorem sameFiber_eq_sameFiberAt {s : State N K E V} {n : N} {st : Step s}
