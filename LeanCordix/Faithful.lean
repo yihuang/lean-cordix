@@ -1964,6 +1964,305 @@ theorem edit_preserves_lookup_ne {s x : State N K E V} (st : Step s) {m : N}
       · have hn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
         simp [Step.edit, hn]
 
+/-- `Step.edit` preserves pointwise fiber agreement. -/
+theorem edit_preserves_sameFiberAt {s x y : State N K E V} (st : Step s) {m : N}
+    (h : SameFiberAt x y m) : SameFiberAt (Step.edit st x) (Step.edit st y) m := by
+  by_cases hmn : m = st.name
+  · subst m
+    cases st with
+    | oInsert n c p hn hp hdisj =>
+        simpa [Step.edit] using set_preserves_sameFiberAt (n := n)
+          (g := Fiber.mk c p (fun _ => none) false (.inactive none)) h
+    | oRetire n f hf =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with retired := true }) (gy := { gy with retired := true }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | oRemove n f o hf hl hchild =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        simp [Step.edit, lookup_del_self]
+    | lBegin n f v hf hl ht htable =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .loading gx.comp.iter id v })
+            (gy := { gy with lc := .loading gy.comp.iter id v }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | lIter n f ι κ v ι' δ hh hreach hf hl ht hstep =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .loading ι' (κ ∘ hh) v })
+            (gy := { gy with lc := .loading ι' (κ ∘ hh) v }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | lFinish n f ι κ v δ hh hreach hf hl ht hstep =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .active (κ ∘ hh) v })
+            (gy := { gy with lc := .active (κ ∘ hh) v }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | lRaise n f ι κ v e hreach hf hl hstep =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .unloading κ v (some e) })
+            (gy := { gy with lc := .unloading κ v (some e) }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | lDivertAbort n f ι κ v hreach hf hl ht =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .unloading κ v none })
+            (gy := { gy with lc := .unloading κ v none }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | lDivertLand n f ι κ v δ hh c hreach hf hl ht hstep =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .unloading (κ ∘ hh) v none })
+            (gy := { gy with lc := .unloading (κ ∘ hh) v none }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | lLeave n f κ v hf hl ht =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .unloading κ v none })
+            (gy := { gy with lc := .unloading κ v none }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+    | lUnload n f κ v o hf hl hg =>
+        unfold SameFiberAt
+        simp [Step.name] at h ⊢
+        by_cases hx : (lookup x.reg n).isSome
+        · have hy : (lookup y.reg n).isSome := by
+            unfold SameFiberAt at h
+            rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+            rw [hgx] at h
+            by_cases hy' : (lookup y.reg n).isSome
+            · exact hy'
+            · have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy'
+              simp [hyn] at h
+          rcases Option.isSome_iff_exists.mp hx with ⟨gx, hgx⟩
+          rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+          have hprov : gx.comp.prov = gy.comp.prov := by
+            unfold SameFiberAt at h
+            rw [hgx, hgy] at h
+            exact h
+          simp [Step.edit, hgx, hgy]
+          exact set_preserves_sameFiberAt_of_prov (n := n)
+            (gx := { gx with lc := .inactive o })
+            (gy := { gy with lc := .inactive o }) h hprov
+        · have hy : ¬ (lookup y.reg n).isSome := by
+            intro hy
+            unfold SameFiberAt at h
+            have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+            rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+            simp [hxn, hgy] at h
+          have hxn : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+          have hyn : lookup y.reg n = none := Option.not_isSome_iff_eq_none.mp hy
+          simp [Step.edit, hxn, hyn]
+  · have hx_lookup : lookup (Step.edit st x).reg m = lookup x.reg m :=
+      Step.edit_preserves_lookup_ne st hmn
+    have hy_lookup : lookup (Step.edit st y).reg m = lookup y.reg m :=
+      Step.edit_preserves_lookup_ne st hmn
+    unfold SameFiberAt
+    rw [hx_lookup, hy_lookup]
+    exact h
+
 /-- If a step is confined at its source state, then `PsiConfinedAt` holds
 with both arguments equal to that source state. -/
 theorem psiConfinedAt_self_of_confined {s : State N K E V} (st : Step s)

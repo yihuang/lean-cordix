@@ -147,6 +147,7 @@ theorem State.recover_psi_commute_approx_of_indep
 - `State.writeEffect_preserves_sameFiberAt`
 - `State.writeEffect_preserves_sameFiberAt_left/right`
 - `Step.psi_preserves_sameFiberAt`
+- `Step.edit_preserves_sameFiberAt`
 
 这些是 8.2 实例化所需的保持定理；`Step.next_*` 组合了 `edit ∘ psi`。
 
