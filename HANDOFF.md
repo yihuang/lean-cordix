@@ -130,6 +130,8 @@ theorem State.recover_psi_commute_approx_of_indep
 - `Step.edit_preserves_nodupKeys`
 - `Step.edit_preserves_pairwiseDisjointTables`
 - `Step.psiConfinedAt_self_of_confined`
+- `Step.psiConfinedAt_self_of_pair_left`
+- `Step.psiConfinedAt_self_of_pair_right`
 - `Step.next_preserves_nodupKeys`
 - `Step.next_preserves_pairwiseDisjointTables`
 
@@ -149,6 +151,8 @@ theorem StepTrace.recovery_exactness_cor62_wellformed
 `hnrec/hnx/hdisjrec/hdisjx` 四个冗余参数。
 
 `recovery_exactness_aux` / `recovery_exactness_recoverAcc` 现在要求 `hself` 只给 `≈`（不需要 fullCtx 等式），`hcomm` 也只给 `≈`；fullCtx 等式由 `hnrec/hnx/hdisjrec/hdisjx` 通过 `State.fullCtx_of_nodup_of_disjoint` 推导。`hself` 还要求 `st.kind ≠ oRemove`（因为 trace 本身排除 `O-Remove`）。`hedit` 是 `≈` 版本，由 `State.recover_next_approx_recover_psi_of_ne_remove` 提供。
+
+`recovery_exactness_aux` 已改为只要求当前 folded state `x` 的局部 `NodupKeys x.reg` / `PairwiseDisjointTables x.reg`，不再要求全称 `hnx/hdisjx`；归纳推进时用 `Step.psi_preserves_nodupKeys` / `Step.psi_preserves_pairwiseDisjointTables` 和 `PsiConfinedAt` self-pair helper 自动保持。`recovery_exactness_recoverAcc` / `recovery_exactness_cor62` 也改为只要求初始 `s` 的局部 `NodupKeys s.reg` / `PairwiseDisjointTables s.reg`。
 
 这两个定理使用全称量化的 side conditions：
 
@@ -241,21 +245,20 @@ def SameProvision s n st x : Prop :=
    - 为此给 `Step.lBegin` 增加了 `htable : f.table = fun _ => none` 前提（只影响 `Faithful.lean`）。
 2. 已实现 `StepTrace.recovery_exactness_cor62`：在 independence / withdraw / confined / nodup / disjoint 等全称假设下调用 `recovery_exactness_recoverAcc`。
 3. 已证明 `NodupKeys` / `PairwiseDisjointTables` 在 `Step.psi`、`Step.edit`、`Step.next`、`State.recover` 下的保持（见 5.6）。
-4. 已增加 `StepTrace.recovery_exactness_cor62_wellformed`，用全局 well-formedness 消去四个冗余 side conditions；仍待消去 `SamePresence` / `SameProvision` / `PsiConfinedAt`。
+4. 已把 `recovery_exactness_aux` / `recoverAcc` / `cor62` 中全称 `hnx/hdisjx` 改为局部初始假设，并用保持定理在归纳中自动推进。
+5. 已增加 `StepTrace.recovery_exactness_cor62_wellformed`，用全局 well-formedness 消去 `hnrec/hnx/hdisjrec/hdisjx`；仍待消去 `SamePresence` / `SameProvision` / `PsiConfinedAt`。
 
 剩余工作是把 Cor 62 的全称 side conditions 从 well-formedness 与 trace 不变量中真正推导出来（见 8.2）。
 
 ### 8.2 具体实例化 trace-level Thm 61 / Cor 62
 
-把以下全称 side conditions 从 well-formedness + independence 推导出来：
+现在仍需从 well-formedness + independence / trace 不变量推导或进一步消去：
 
 - `SamePresence`
 - `SameProvision`
-- `NodupKeys (State.recover s n).reg`
-- `NodupKeys x.reg`
-- `PairwiseDisjointTables (State.recover s n).reg`
-- `PairwiseDisjointTables x.reg`
 - `Step.PsiConfinedAt st (State.recover s n) x`
+
+`NodupKeys` / `PairwiseDisjointTables` 相关 side conditions 已通过保持定理和 `cor62_wellformed` 消去。
 
 这需要：
 
@@ -278,7 +281,7 @@ def SameProvision s n st x : Prop :=
 1. ✅ 补 self-step 覆盖（含 `lBegin/lRaise/lDivertAbort/lLeave/oRetire`）并构造 `Step.recover_self_approx_of_confined`；
 2. ✅ 构造 Cor 62 的 `hself` / `hcomm` / `hedit` 并实现 `StepTrace.recovery_exactness_cor62`；
 3. ✅ 证明 `NodupKeys` / `PairwiseDisjointTables` 在 `Step.psi` / `Step.edit` 下保持（并补了 `Step.next` / `State.recover` 版本）；
-4. 把这些保持定理接入 `SamePresence` / `SameProvision` / `PsiConfinedAt` 的实例化；
+4. 🔄 已把保持定理接入 folded-state 的 `NodupKeys` / `PairwiseDisjointTables` 推进；继续做 `SamePresence` / `SameProvision` / `PsiConfinedAt` 的实例化；
 5. 最后做模块整合和文档更新。
 
 ## 10. 验证命令

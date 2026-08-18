@@ -1609,6 +1609,62 @@ theorem psiConfinedAt_self_of_confined {s : State N K E V} (st : Step s)
       simpa [Step.Confined, Step.PsiConfinedAt] using hconf
   | _ => trivial
 
+/-- If `PsiConfinedAt` holds for a pair with equal full contexts, it also
+holds for the left state paired with itself. -/
+theorem psiConfinedAt_self_of_pair_left {s x y : State N K E V} (st : Step s)
+    (hfull : State.fullCtx x = State.fullCtx y)
+    (hconf : Step.PsiConfinedAt st x y) : Step.PsiConfinedAt st x x := by
+  cases st with
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hy' : ∃ h' c', Iterator.step ι (State.fullCtx y) = .ok (δ', h', c') := by
+        exact ⟨h', c', by rwa [← hfull]⟩
+      exact ⟨(hconf δ' ⟨h', c', hx⟩ hy').1, (hconf δ' ⟨h', c', hx⟩ hy').1⟩
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hy' : ∃ h' c', Iterator.step ι (State.fullCtx y) = .ok (δ', h', c') := by
+        exact ⟨h', c', by rwa [← hfull]⟩
+      exact ⟨(hconf δ' ⟨h', c', hx⟩ hy').1, (hconf δ' ⟨h', c', hx⟩ hy').1⟩
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hy' : ∃ h' c', Iterator.step ι (State.fullCtx y) = .ok (δ', h', c') := by
+        exact ⟨h', c', by rwa [← hfull]⟩
+      exact ⟨(hconf δ' ⟨h', c', hx⟩ hy').1, (hconf δ' ⟨h', c', hx⟩ hy').1⟩
+  | lUnload n f κ v o hf hl hg =>
+      exact ⟨hconf.1, hconf.1⟩
+  | _ => trivial
+
+/-- If `PsiConfinedAt` holds for a pair with equal full contexts, it also
+holds for the right state paired with itself. -/
+theorem psiConfinedAt_self_of_pair_right {s x y : State N K E V} (st : Step s)
+    (hfull : State.fullCtx x = State.fullCtx y)
+    (hconf : Step.PsiConfinedAt st x y) : Step.PsiConfinedAt st y y := by
+  cases st with
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hx' : ∃ h' c', Iterator.step ι (State.fullCtx x) = .ok (δ', h', c') := by
+        exact ⟨h', c', by simpa [hfull] using hx⟩
+      exact ⟨(hconf δ' hx' ⟨h', c', hx⟩).2, (hconf δ' hx' ⟨h', c', hx⟩).2⟩
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hx' : ∃ h' c', Iterator.step ι (State.fullCtx x) = .ok (δ', h', c') := by
+        exact ⟨h', c', by simpa [hfull] using hx⟩
+      exact ⟨(hconf δ' hx' ⟨h', c', hx⟩).2, (hconf δ' hx' ⟨h', c', hx⟩).2⟩
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hx' : ∃ h' c', Iterator.step ι (State.fullCtx x) = .ok (δ', h', c') := by
+        exact ⟨h', c', by simpa [hfull] using hx⟩
+      exact ⟨(hconf δ' hx' ⟨h', c', hx⟩).2, (hconf δ' hx' ⟨h', c', hx⟩).2⟩
+  | lUnload n f κ v o hf hl hg =>
+      exact ⟨hconf.2, hconf.2⟩
+  | _ => trivial
+
 /-- `Step.next` preserves duplicate-free names. -/
 theorem next_preserves_nodupKeys {s : State N K E V} (st : Step s)
     (hn : NodupKeys s.reg) : NodupKeys (Step.next st).reg := by
@@ -3335,15 +3391,19 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
     (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
       SameProvision s' n st x)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
-    (hnx : ∀ (x : State N K E V), NodupKeys x.reg)
+    (hnx : NodupKeys x.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
-    (hdisjx : ∀ (x : State N K E V), PairwiseDisjointTables x.reg)
+    (hdisjx : PairwiseDisjointTables x.reg)
     (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
       Step.PsiConfinedAt st (State.recover s' n) x) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n x) := by
+  revert hnx hdisjx
   induction ht generalizing x with
-  | nil s => simpa [StepTrace.foldPsiExcept] using hI.1
+  | nil s =>
+      intro hnx hdisjx
+      simpa [StepTrace.foldPsiExcept] using hI.1
   | @cons s₁ s₂ s₃ st hnext ht ih =>
+      intro hnx hdisjx
       by_cases hst : st.name = n
       · rcases hno_remove with ⟨hno_self, htail_no⟩
         have hself' := hself s₁ st hst hno_self
@@ -3359,7 +3419,7 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
             exact State.Approx.trans hself' hI.1
           · rw [← hrec_eq]
             exact hfull_self.trans hI.2
-        have htail := ih x hI' htail_no
+        have htail := ih x hI' htail_no hnx hdisjx
         simpa [StepTrace.foldPsiExcept, hst] using htail
       · have hno : st.kind ≠ Full.StepKind.oRemove := by
           rcases hno_remove with ⟨hno_rem, _⟩
@@ -3376,19 +3436,30 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
           simpa [SameProvision] using hprov0
         have hpsi := Step.psi_preserves_approx st hI.1 hI.2 hdom' hprov'
         have hpsi_full := Step.psi_preserves_fullCtx st hI.2 hdom' hprov'
-          (hnrec s₁) (hnx x) (hconf x s₁ st hst)
+          (hnrec s₁) hnx (hconf x s₁ st hst)
         have hfull_edit : State.fullCtx (State.recover (Step.next st) n) =
             State.fullCtx (State.recover (Step.psi st s₁) n) := by
           exact State.fullCtx_of_nodup_of_disjoint (hnrec (Step.next st))
             (hnrec (Step.psi st s₁))
             (hdisjrec (Step.next st)) (hdisjrec (Step.psi st s₁))
             hedit'
+        have hpsi_rec_nodup : NodupKeys (Step.psi st (State.recover s₁ n)).reg :=
+          Step.psi_preserves_nodupKeys st (hnrec s₁)
+        have hpsi_rec_disj : PairwiseDisjointTables (Step.psi st (State.recover s₁ n)).reg := by
+          have hconf_rec_self : Step.PsiConfinedAt st (State.recover s₁ n) (State.recover s₁ n) :=
+            hconf (State.recover s₁ n) s₁ st hst
+          exact Step.psi_preserves_pairwiseDisjointTables st (hnrec s₁) (hdisjrec s₁) hconf_rec_self
         have hfull_comm : State.fullCtx (State.recover (Step.psi st s₁) n) =
             State.fullCtx (Step.psi st (State.recover s₁ n)) := by
           exact State.fullCtx_of_nodup_of_disjoint (hnrec (Step.psi st s₁))
-            (hnx (Step.psi st (State.recover s₁ n)))
-            (hdisjrec (Step.psi st s₁)) (hdisjx (Step.psi st (State.recover s₁ n)))
+            hpsi_rec_nodup
+            (hdisjrec (Step.psi st s₁)) hpsi_rec_disj
             hcomm'
+        have hx_nodup' : NodupKeys (Step.psi st x).reg := Step.psi_preserves_nodupKeys st hnx
+        have hx_disj' : PairwiseDisjointTables (Step.psi st x).reg := by
+          have hconf_x_self : Step.PsiConfinedAt st x x :=
+            Step.psiConfinedAt_self_of_pair_right st hI.2 (hconf x s₁ st hst)
+          exact Step.psi_preserves_pairwiseDisjointTables st hnx hdisjx hconf_x_self
         have hI' : State.Approx (State.recover s₂ n) (Step.psi st x) ∧
             State.fullCtx (State.recover s₂ n) = State.fullCtx (Step.psi st x) := by
           constructor
@@ -3399,7 +3470,7 @@ theorem recovery_exactness_aux {N : Type} [DecidableEq N] {K : Type} [DecidableE
         have htail_no : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht := by
           rcases hno_remove with ⟨_, htail_no⟩
           exact htail_no
-        have htail := ih (Step.psi st x) hI' htail_no
+        have htail := ih (Step.psi st x) hI' htail_no hx_nodup' hx_disj'
         simpa [StepTrace.foldPsiExcept, hst] using htail
 
 /-- Faithful Thm 61, trace-level statement with universally quantified side
@@ -3424,9 +3495,9 @@ theorem recovery_exactness_recoverAcc {N : Type} [DecidableEq N] {K : Type} [Dec
     (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
       SameProvision s' n st x)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
-    (hnx : ∀ (x : State N K E V), NodupKeys x.reg)
+    (hnx : NodupKeys s.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
-    (hdisjx : ∀ (x : State N K E V), PairwiseDisjointTables x.reg)
+    (hdisjx : PairwiseDisjointTables s.reg)
     (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
       Step.PsiConfinedAt st (State.recover s' n) x) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
@@ -3480,9 +3551,9 @@ theorem recovery_exactness_cor62 {N : Type} [DecidableEq N] {K : Type} [Decidabl
     (hprov : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
       SameProvision s' n st x)
     (hnrec : ∀ (s' : State N K E V), NodupKeys (State.recover s' n).reg)
-    (hnx : ∀ (x : State N K E V), NodupKeys x.reg)
+    (hnx : NodupKeys s.reg)
     (hdisjrec : ∀ (s' : State N K E V), PairwiseDisjointTables (State.recover s' n).reg)
-    (hdisjx : ∀ (x : State N K E V), PairwiseDisjointTables x.reg)
+    (hdisjx : PairwiseDisjointTables s.reg)
     (hconf : ∀ (x : State N K E V) (s' : State N K E V) (st : Step s'), st.name ≠ n →
       Step.PsiConfinedAt st (State.recover s' n) x) :
     State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
@@ -3548,9 +3619,9 @@ theorem recovery_exactness_cor62_wellformed {N : Type} [DecidableEq N] {K : Type
     hwithdraw hwithdraw_on hopen hconf_self hself_withdraw hconf_non_self hno_remove
     hdom hprov
     (fun s' => State.recover_preserves_nodupKeys (hnodup s'))
-    hnodup
+    (hnodup s)
     (fun s' => State.recover_preserves_pairwiseDisjointTables (hnodup s') (hdisj s'))
-    hdisj hconf
+    (hdisj s) hconf
 
 end StepTrace
 
