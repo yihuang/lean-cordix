@@ -50,6 +50,31 @@ structure Component (K : Type) (V : K → Type u) (E : Type) where
   /-- The iterator is witnessed, including all reachable continuations. -/
   wit : Iterator.WitnessedAll iter
 
+/-- **Faithful Definition 48 (writes half).** An iterator is confined to a
+provision `P` when every successful step leaves the sigma component
+unchanged outside `P`.  This is the map-level write bound used to show that
+recomputed effects are still confined after recovery. -/
+def ConfinedIterator {K : Type} {V : K → Type u} {E : Type}
+    (ι : Iterator (Ctx K V) E) (P : List K) : Prop :=
+  ∀ γ : Ctx K V, match Iterator.step ι γ with
+    | .ok (δ, _, _) => ∀ k, k ∉ P → γ.2 k = δ.2 k
+    | .error _ => True
+
+/-- **Faithful Definition 48 (writes half) for accumulators.** An
+accumulator is confined to `P` when it leaves the sigma component unchanged
+outside `P`. -/
+def ConfinedAcc {K : Type} {V : K → Type u}
+    (κ : Ctx K V → Ctx K V) (P : List K) : Prop :=
+  ∀ γ : Ctx K V, ∀ k, k ∉ P → γ.2 k = (κ γ).2 k
+
+/-- A component is confined when every reachable iterator is
+write-confined to its provision.  The accumulator half is stated as a
+separate global assumption in the trace theorems, since accumulators are
+stored in lifecycle records. -/
+def Component.Confined (c : Component K V E) : Prop :=
+  ∀ {ι' : Iterator (Ctx K V) E}, Iterator.Reachable c.iter ι' →
+    ConfinedIterator ι' c.prov
+
 /-- **Faithful Definition 49.** Lifecycle states with full-context
 accumulators. -/
 inductive Lifecycle (N : Type) (K : Type) (V : K → Type u) (E : Type)
@@ -92,6 +117,16 @@ def acc {N K : Type} {V : K → Type u} {E : Type} :
   | .loading _ κ _ => κ
   | .active κ _ => κ
   | .unloading κ _ _ => κ
+
+/-- A lifecycle is write-confined to a provision when its iterator (if any)
+and its accumulator are both confined. -/
+def Confined {N K : Type} {V : K → Type u} {E : Type}
+    (lc : Lifecycle N K V E) (P : List K) : Prop :=
+  match lc with
+  | .inactive _ => True
+  | .loading ι κ _ => ConfinedIterator ι P ∧ ConfinedAcc κ P
+  | .active κ _ => ConfinedAcc κ P
+  | .unloading κ _ _ => ConfinedAcc κ P
 
 end Lifecycle
 
@@ -885,6 +920,105 @@ def ConfinedEffect {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
     (∀ k, k ∉ f.comp.prov → f.table k = none) ∧
     (∀ p ∈ s.reg, p.1 ≠ n →
       ∀ k ∈ f.comp.prov, p.2.table k = none)
+
+/-- If an iterator is write-confined to a fiber's provision, any successful
+step on a state produces a `ConfinedEffect` for that state (given the usual
+table support/disjointness side conditions). -/
+theorem confinedEffect_of_confinedIterator {s : State N K E V} {n : N}
+    {f : Fiber N K V E} {ι : Iterator (Ctx K V) E} {δ : Ctx K V}
+    (hf : lookup s.reg n = some f)
+    (hι : ConfinedIterator ι f.comp.prov)
+    (hstep : ∃ h c, Iterator.step ι (State.fullCtx s) = .ok (δ, h, c))
+    (hsupport : ∀ k, k ∉ f.comp.prov → f.table k = none)
+    (hdisj : ∀ p ∈ s.reg, p.1 ≠ n → ∀ k ∈ f.comp.prov, p.2.table k = none) :
+    ConfinedEffect s n δ := by
+  rcases hstep with ⟨h, c, hstep⟩
+  refine ⟨f, hf, ?_, hsupport, hdisj⟩
+  intro k hk
+  have hout := hι (State.fullCtx s)
+  rw [hstep] at hout
+  exact hout k hk
+
+/-- If an accumulator is write-confined to a fiber's provision, applying it
+to the state's full context produces a `ConfinedEffect` for that state. -/
+theorem confinedEffect_of_confinedAcc {s : State N K E V} {n : N}
+    {f : Fiber N K V E} {κ : Ctx K V → Ctx K V}
+    (hf : lookup s.reg n = some f)
+    (hκ : ConfinedAcc κ f.comp.prov)
+    (hsupport : ∀ k, k ∉ f.comp.prov → f.table k = none)
+    (hdisj : ∀ p ∈ s.reg, p.1 ≠ n → ∀ k ∈ f.comp.prov, p.2.table k = none) :
+    ConfinedEffect s n (κ (State.fullCtx s)) := by
+  refine ⟨f, hf, ?_, hsupport, hdisj⟩
+  intro k hk
+  exact hκ (State.fullCtx s) k hk
+
+/-- Recovery at `n` preserves the disjointness condition of a confined
+effect at a different fiber `m`. -/
+theorem recover_preserves_confined_disjoint {s : State N K E V} {m n : N}
+    {f : Fiber N K V E} (hmn : m ≠ n) (hnodup : NodupKeys s.reg)
+    (hf : lookup s.reg m = some f)
+    (hdisj : ∀ p ∈ s.reg, p.1 ≠ m → ∀ k ∈ f.comp.prov, p.2.table k = none) :
+    ∀ p ∈ (State.recover s n).reg, p.1 ≠ m →
+      ∀ k ∈ f.comp.prov, p.2.table k = none := by
+  intro p hp hpm k hk
+  unfold State.recover at hp
+  by_cases hn : (lookup s.reg n).isSome
+  · rcases Option.isSome_iff_exists.mp hn with ⟨g, hg⟩
+    cases hlc : g.lc with
+    | inactive o =>
+        simp [State.recover, hg, hlc] at hp
+        exact hdisj p hp hpm k hk
+    | loading i κ v =>
+        simp [State.recover, hg, hlc] at hp
+        rcases p with ⟨a, h⟩
+        by_cases ha : a = n
+        · subst a
+          have hset : lookup (set s.reg n { g with table := fun _ => none, lc := .loading i κ v }) n =
+              some ({ g with table := fun _ => none, lc := .loading i κ v } : Fiber N K V E) :=
+            lookup_set_eq s.reg n { g with table := fun _ => none, lc := .loading i κ v }
+          have hset_nodup : NodupKeys (set s.reg n { g with table := fun _ => none, lc := .loading i κ v }) :=
+            nodupKeys_set s.reg n { g with table := fun _ => none, lc := .loading i κ v } hnodup
+          have hh : h = { g with table := fun _ => none, lc := .loading i κ v } :=
+            lookup_eq_of_nodup hset_nodup (lookup_self_of_mem_of_nodup hset_nodup hp) hset
+          subst h
+          simp
+        · have hp' : (a, h) ∈ s.reg := mem_of_mem_set_ne hp ha
+          exact hdisj (a, h) hp' (by intro heq; exact hpm heq) k hk
+    | active κ v =>
+        simp [State.recover, hg, hlc] at hp
+        rcases p with ⟨a, h⟩
+        by_cases ha : a = n
+        · subst a
+          have hset : lookup (set s.reg n { g with table := fun _ => none, lc := .active κ v }) n =
+              some ({ g with table := fun _ => none, lc := .active κ v } : Fiber N K V E) :=
+            lookup_set_eq s.reg n { g with table := fun _ => none, lc := .active κ v }
+          have hset_nodup : NodupKeys (set s.reg n { g with table := fun _ => none, lc := .active κ v }) :=
+            nodupKeys_set s.reg n { g with table := fun _ => none, lc := .active κ v } hnodup
+          have hh : h = { g with table := fun _ => none, lc := .active κ v } :=
+            lookup_eq_of_nodup hset_nodup (lookup_self_of_mem_of_nodup hset_nodup hp) hset
+          subst h
+          simp
+        · have hp' : (a, h) ∈ s.reg := mem_of_mem_set_ne hp ha
+          exact hdisj (a, h) hp' (by intro heq; exact hpm heq) k hk
+    | unloading κ v o =>
+        simp [State.recover, hg, hlc] at hp
+        rcases p with ⟨a, h⟩
+        by_cases ha : a = n
+        · subst a
+          have hset : lookup (set s.reg n { g with table := fun _ => none, lc := .unloading κ v o }) n =
+              some ({ g with table := fun _ => none, lc := .unloading κ v o } : Fiber N K V E) :=
+            lookup_set_eq s.reg n { g with table := fun _ => none, lc := .unloading κ v o }
+          have hset_nodup : NodupKeys (set s.reg n { g with table := fun _ => none, lc := .unloading κ v o }) :=
+            nodupKeys_set s.reg n { g with table := fun _ => none, lc := .unloading κ v o } hnodup
+          have hh : h = { g with table := fun _ => none, lc := .unloading κ v o } :=
+            lookup_eq_of_nodup hset_nodup (lookup_self_of_mem_of_nodup hset_nodup hp) hset
+          subst h
+          simp
+        · have hp' : (a, h) ∈ s.reg := mem_of_mem_set_ne hp ha
+          exact hdisj (a, h) hp' (by intro heq; exact hpm heq) k hk
+  · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp hn
+    simp [State.recover, hn'] at hp
+    exact hdisj p hp hpm k hk
 
 /-- `writeEffect` preserves pairwise disjointness of tables under
 confinement of the effect. -/
@@ -2658,6 +2792,87 @@ theorem fullCtx_of_nodup_of_disjoint {s t : State N K E V}
   · exact h.ambient
   · exact rawSigma_eq_of_tableAt_eq_of_nodup_of_disjoint hs ht hdisjs hdisjt h.tables
 
+/-- `ConfinedEffect` transfers from `y` to an `≈`-equivalent state `z`
+with the same fiber at the acting name. -/
+theorem confinedEffect_transfer_of_approx {y z : State N K E V} {m : N}
+    {δ : Ctx K V}
+    (hyz : State.Approx y z)
+    (hfull : State.fullCtx y = State.fullCtx z)
+    (hdom : (lookup y.reg m).isSome ↔ (lookup z.reg m).isSome)
+    (hprov : ∀ gy gz, lookup y.reg m = some gy → lookup z.reg m = some gz →
+      gy.comp.prov = gz.comp.prov)
+    (hnody : NodupKeys y.reg) (hnodz : NodupKeys z.reg)
+    (hconf : ConfinedEffect y m δ) :
+    ConfinedEffect z m δ := by
+  rcases hconf with ⟨fy, hfy, hout, hsupport, hdisj⟩
+  have hz_some : (lookup z.reg m).isSome := by
+    rw [← hdom]
+    exact Option.isSome_iff_exists.mpr ⟨fy, hfy⟩
+  rcases Option.isSome_iff_exists.mp hz_some with ⟨fz, hfz⟩
+  have hprov_eq : fz.comp.prov = fy.comp.prov := (hprov fy fz hfy hfz).symm
+  refine ⟨fz, hfz, ?_, ?_, ?_⟩
+  · intro k hk
+    have hk_y : k ∉ fy.comp.prov := by simpa [hprov_eq] using hk
+    have hraw : rawSigma y.reg k = rawSigma z.reg k := by
+      have hsnd := congrArg Prod.snd hfull
+      exact congrFun hsnd k
+    exact (hraw.symm.trans (hout k hk_y))
+  · intro k hk
+    have hk_y : k ∉ fy.comp.prov := by simpa [hprov_eq] using hk
+    have htable_z_symm : fy.table = fz.table := by
+      simpa [State.tableAt, hfy, hfz] using hyz.tables m
+    have htable_z : fz.table = fy.table := htable_z_symm.symm
+    rw [htable_z]
+    exact hsupport k hk_y
+  · intro p hp hpm k hk
+    have hk_y : k ∈ fy.comp.prov := by simpa [hprov_eq] using hk
+    have hlook_z : lookup z.reg p.1 = some p.2 := lookup_self_of_mem_of_nodup hnodz hp
+    have htable_yz : State.tableAt y p.1 k = State.tableAt z p.1 k := congrFun (hyz.tables p.1) k
+    have hz_table : State.tableAt z p.1 k = p.2.table k := by
+      simp [State.tableAt, hlook_z]
+    have htable_eq : State.tableAt y p.1 k = p.2.table k := htable_yz.trans hz_table
+    by_cases hy : (lookup y.reg p.1).isSome
+    · rcases Option.isSome_iff_exists.mp hy with ⟨gy, hgy⟩
+      have htable_y : State.tableAt y p.1 k = gy.table k := by
+        simp [State.tableAt, hgy]
+      have hp_eq : p.2.table k = gy.table k := (htable_y.symm.trans htable_eq).symm
+      have hp_y : (p.1, gy) ∈ y.reg := lookup_some_mem hgy
+      have hnone : gy.table k = none := hdisj (p.1, gy) hp_y (by intro heq; exact hpm heq) k hk_y
+      rw [hp_eq, hnone]
+    · have hyn : lookup y.reg p.1 = none := Option.not_isSome_iff_eq_none.mp hy
+      have htable_y : State.tableAt y p.1 k = none := by
+        simp [State.tableAt, hyn]
+      exact (htable_y.symm.trans htable_eq).symm
+
+/-- A write-confined iterator still produces a confined effect after
+recovering another fiber `n`. -/
+theorem confinedEffect_of_confinedIterator_of_recover {s : State N K E V}
+    {m n : N} {ι : Iterator (Ctx K V) E} {δ δ₀ : Ctx K V}
+    (hmn : m ≠ n) (hnodup : NodupKeys s.reg)
+    (hconf : ConfinedEffect s m δ₀)
+    (hι : ∀ f, lookup s.reg m = some f → ConfinedIterator ι f.comp.prov)
+    (hstep : ∃ h c, Iterator.step ι (State.fullCtx (State.recover s n)) = .ok (δ, h, c)) :
+    ConfinedEffect (State.recover s n) m δ := by
+  rcases hconf with ⟨f, hf, hout₀, hsupport, hdisj⟩
+  have hfrec : lookup (State.recover s n).reg m = some f := by
+    rw [State.lookup_recover_ne (n := n) (m := m) (Ne.symm hmn), hf]
+  have hdisjrec := recover_preserves_confined_disjoint (m := m) (n := n) (f := f) hmn hnodup hf hdisj
+  exact confinedEffect_of_confinedIterator hfrec (hι f hf) hstep hsupport hdisjrec
+
+/-- A write-confined accumulator still produces a confined effect after
+recovering another fiber `n`. -/
+theorem confinedEffect_of_confinedAcc_of_recover {s : State N K E V}
+    {m n : N} {κ : Ctx K V → Ctx K V} {δ₀ : Ctx K V}
+    (hmn : m ≠ n) (hnodup : NodupKeys s.reg)
+    (hconf : ConfinedEffect s m δ₀)
+    (hκ : ∀ f, lookup s.reg m = some f → ConfinedAcc κ f.comp.prov) :
+    ConfinedEffect (State.recover s n) m (κ (State.fullCtx (State.recover s n))) := by
+  rcases hconf with ⟨f, hf, hout₀, hsupport, hdisj⟩
+  have hfrec : lookup (State.recover s n).reg m = some f := by
+    rw [State.lookup_recover_ne (n := n) (m := m) (Ne.symm hmn), hf]
+  have hdisjrec := recover_preserves_confined_disjoint (m := m) (n := n) (f := f) hmn hnodup hf hdisj
+  exact confinedEffect_of_confinedAcc hfrec (hκ f hf) hsupport hdisjrec
+
 /-- `tableAt` after a pointwise `set` at the updated name. -/
 theorem tableAt_set_eq (r : Registry N K V E) (n : N) (g : Fiber N K V E)
     (a : CoefCtx K V) :
@@ -3131,6 +3346,134 @@ theorem recover_psi_commute_approx_of_indep {s : State N K E V} (st : Step s)
         (κ (State.fullCtx (State.recover s n))) hnodup hconfm hamb htable hfn hni
 
 end State
+
+/-- If every reachable iterator and lifecycle accumulator is write-confined,
+then a step that is confined at its source remains `PsiConfinedAt` after
+recovering another fiber and folding through `≈`-equivalent states. -/
+theorem Step.psiConfinedAt_of_confined {s x : State N K E V} (st : Step s) {n : N}
+    (hst : st.name ≠ n)
+    (hconf : Step.Confined st)
+    (hconf_iter : ∀ f, lookup s.reg st.name = some f →
+        ∀ ι, Iterator.Reachable f.comp.iter ι → ConfinedIterator ι f.comp.prov)
+    (hconf_acc : ∀ f, lookup s.reg st.name = some f →
+        ConfinedAcc (Lifecycle.acc f.lc) f.comp.prov)
+    (hnodup_s : NodupKeys s.reg)
+    (hx_approx : State.Approx (State.recover s n) x)
+    (hfull : State.fullCtx (State.recover s n) = State.fullCtx x)
+    (hdom : (lookup (State.recover s n).reg st.name).isSome ↔
+      (lookup x.reg st.name).isSome)
+    (hprov : ∀ gx gy, lookup (State.recover s n).reg st.name = some gx →
+      lookup x.reg st.name = some gy → gx.comp.prov = gy.comp.prov)
+    (hnrec : NodupKeys (State.recover s n).reg) (hnx : NodupKeys x.reg) :
+    Step.PsiConfinedAt st (State.recover s n) x := by
+  cases st with
+  | oInsert m c p hn hp hdisj => trivial
+  | oRetire m f hf => trivial
+  | oRemove m f o hf hl hchild => trivial
+  | lBegin m f v hf hl ht htable => trivial
+  | lIter m f ι κ v ι' δ h hreach hf hl ht hstep =>
+      have hmn : m ≠ n := by simpa [Step.name] using hst
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      rcases hy with ⟨h'', c'', hy⟩
+      have hx' : ∃ h c, Iterator.step ι (State.fullCtx (State.recover s n)) = .ok (δ', h, c) :=
+        ⟨h', c', hx⟩
+      have hι : ∀ f', lookup s.reg m = some f' → ConfinedIterator ι f'.comp.prov := by
+        intro f' hf'
+        have hf'f : f' = f := lookup_eq_of_nodup hnodup_s hf' hf
+        subst f'
+        simpa [Step.name] using hconf_iter f hf ι hreach
+      have hconf_y : ConfinedEffect (State.recover s n) m δ' := by
+        exact State.confinedEffect_of_confinedIterator_of_recover
+          (s := s) (m := m) (n := n) (ι := ι) (δ := δ') (δ₀ := δ)
+          hmn hnodup_s hconf hι hx'
+      have hdom_m : (lookup (State.recover s n).reg m).isSome ↔
+          (lookup x.reg m).isSome := by simpa [Step.name] using hdom
+      have hprov_m : ∀ gy gz, lookup (State.recover s n).reg m = some gy →
+          lookup x.reg m = some gz → gy.comp.prov = gz.comp.prov := by
+        simpa [Step.name] using hprov
+      have hconf_x : ConfinedEffect x m δ' := by
+        exact State.confinedEffect_transfer_of_approx
+          (y := State.recover s n) (z := x) (m := m) (δ := δ')
+          hx_approx hfull hdom_m hprov_m hnrec hnx hconf_y
+      exact ⟨hconf_y, hconf_x⟩
+  | lFinish m f ι κ v δ h hreach hf hl ht hstep =>
+      have hmn : m ≠ n := by simpa [Step.name] using hst
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      rcases hy with ⟨h'', c'', hy⟩
+      have hx' : ∃ h c, Iterator.step ι (State.fullCtx (State.recover s n)) = .ok (δ', h, c) :=
+        ⟨h', c', hx⟩
+      have hι : ∀ f', lookup s.reg m = some f' → ConfinedIterator ι f'.comp.prov := by
+        intro f' hf'
+        have hf'f : f' = f := lookup_eq_of_nodup hnodup_s hf' hf
+        subst f'
+        simpa [Step.name] using hconf_iter f hf ι hreach
+      have hconf_y : ConfinedEffect (State.recover s n) m δ' := by
+        exact State.confinedEffect_of_confinedIterator_of_recover
+          (s := s) (m := m) (n := n) (ι := ι) (δ := δ') (δ₀ := δ)
+          hmn hnodup_s hconf hι hx'
+      have hdom_m : (lookup (State.recover s n).reg m).isSome ↔
+          (lookup x.reg m).isSome := by simpa [Step.name] using hdom
+      have hprov_m : ∀ gy gz, lookup (State.recover s n).reg m = some gy →
+          lookup x.reg m = some gz → gy.comp.prov = gz.comp.prov := by
+        simpa [Step.name] using hprov
+      have hconf_x : ConfinedEffect x m δ' := by
+        exact State.confinedEffect_transfer_of_approx
+          (y := State.recover s n) (z := x) (m := m) (δ := δ')
+          hx_approx hfull hdom_m hprov_m hnrec hnx hconf_y
+      exact ⟨hconf_y, hconf_x⟩
+  | lRaise m f ι κ v e hreach hf hl hstep => trivial
+  | lDivertAbort m f ι κ v hreach hf hl ht => trivial
+  | lDivertLand m f ι κ v δ h c hreach hf hl ht hstep =>
+      have hmn : m ≠ n := by simpa [Step.name] using hst
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      rcases hy with ⟨h'', c'', hy⟩
+      have hx' : ∃ h c, Iterator.step ι (State.fullCtx (State.recover s n)) = .ok (δ', h, c) :=
+        ⟨h', c', hx⟩
+      have hι : ∀ f', lookup s.reg m = some f' → ConfinedIterator ι f'.comp.prov := by
+        intro f' hf'
+        have hf'f : f' = f := lookup_eq_of_nodup hnodup_s hf' hf
+        subst f'
+        simpa [Step.name] using hconf_iter f hf ι hreach
+      have hconf_y : ConfinedEffect (State.recover s n) m δ' := by
+        exact State.confinedEffect_of_confinedIterator_of_recover
+          (s := s) (m := m) (n := n) (ι := ι) (δ := δ') (δ₀ := δ)
+          hmn hnodup_s hconf hι hx'
+      have hdom_m : (lookup (State.recover s n).reg m).isSome ↔
+          (lookup x.reg m).isSome := by simpa [Step.name] using hdom
+      have hprov_m : ∀ gy gz, lookup (State.recover s n).reg m = some gy →
+          lookup x.reg m = some gz → gy.comp.prov = gz.comp.prov := by
+        simpa [Step.name] using hprov
+      have hconf_x : ConfinedEffect x m δ' := by
+        exact State.confinedEffect_transfer_of_approx
+          (y := State.recover s n) (z := x) (m := m) (δ := δ')
+          hx_approx hfull hdom_m hprov_m hnrec hnx hconf_y
+      exact ⟨hconf_y, hconf_x⟩
+  | lLeave m f κ v hf hl ht => trivial
+  | lUnload m f κ v o hf hl hg =>
+      have hmn : m ≠ n := by simpa [Step.name] using hst
+      have hκ : ∀ f', lookup s.reg m = some f' → ConfinedAcc κ f'.comp.prov := by
+        intro f' hf'
+        have hf'f : f' = f := lookup_eq_of_nodup hnodup_s hf' hf
+        subst f'
+        have hκ' : ConfinedAcc (Lifecycle.acc f.lc) f.comp.prov := by simpa [Step.name] using hconf_acc f hf
+        simpa [Lifecycle.acc, hl] using hκ'
+      have hconf_y : ConfinedEffect (State.recover s n) m (κ (State.fullCtx (State.recover s n))) := by
+        exact State.confinedEffect_of_confinedAcc_of_recover
+          (s := s) (m := m) (n := n) (κ := κ) (δ₀ := κ (State.fullCtx s))
+          hmn hnodup_s hconf hκ
+      have hκ_eq : κ (State.fullCtx (State.recover s n)) = κ (State.fullCtx x) := by
+        rw [hfull]
+      have hconf_x : ConfinedEffect x m (κ (State.fullCtx x)) := by
+        have hconf_x' : ConfinedEffect x m (κ (State.fullCtx (State.recover s n))) := by
+          exact State.confinedEffect_transfer_of_approx
+            (y := State.recover s n) (z := x) (m := m)
+            (δ := κ (State.fullCtx (State.recover s n)))
+            hx_approx hfull (by simpa [Step.name] using hdom) (by simpa [Step.name] using hprov) hnrec hnx hconf_y
+        simpa [hκ_eq] using hconf_x'
+      exact ⟨hconf_y, hconf_x⟩
 
 /-- A faithful `Step.psi` preserves `≈` when the input full contexts agree
 and the acting name has the same presence in both input states. -/
@@ -4319,6 +4662,125 @@ theorem PsiFiberAgrees_of_sameFiberAt {s t : State N K E V} (ht : StepTrace s t)
         have htail := ih hx'' htail_insert htail_remove
         exact htail
 
+/-- Derive `PsiConfinedAgrees` from write-confined iterators/accumulators,
+fiber stability, and the `≈`-invariants used by recovery exactness. -/
+theorem PsiConfinedAgrees_of_confined {s t : State N K E V} (ht : StepTrace s t)
+    {n : N} {x : State N K E V}
+    (hx_same : ∀ m, m ≠ n → SameFiberAt s x m)
+    (hx_approx : State.Approx (State.recover s n) x)
+    (hself : ∀ (s' : State N K E V) (st : Step s'), st.name = n →
+      st.kind ≠ Full.StepKind.oRemove →
+      State.Approx (State.recover (Step.next st) n) (State.recover s' n))
+    (hcomm : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      State.Approx (State.recover (Step.psi st s') n) (Step.psi st (State.recover s' n)))
+    (hedit : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → st.kind ≠ Full.StepKind.oRemove →
+      State.Approx (State.recover (Step.next st) n) (State.recover (Step.psi st s') n))
+    (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
+    (hno_insert : NoNonNInsert n ht)
+    (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
+    (hconf_iter : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f →
+        ∀ ι, Iterator.Reachable f.comp.iter ι → ConfinedIterator ι f.comp.prov)
+    (hconf_acc : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → ConfinedAcc (Lifecycle.acc f.lc) f.comp.prov)
+    (hnodup : ∀ (s' : State N K E V), NodupKeys s'.reg)
+    (hdisj : ∀ (s' : State N K E V), PairwiseDisjointTables s'.reg) :
+    PsiConfinedAgrees n x ht := by
+  induction ht generalizing x with
+  | nil => trivial
+  | @cons s₁ s₂ s₃ st hnext ht ih =>
+      rcases hno_remove with ⟨hst_remove, htail_remove⟩
+      rcases hno_insert with ⟨hst_insert, htail_insert⟩
+      constructor
+      · by_cases hst : st.name = n
+        · exact Or.inl hst
+        · right
+          have hfiber : SameFiber s₁ n st x := by
+            rw [sameFiber_eq_sameFiberAt]
+            simpa [SameFiberAt, State.lookup_recover_ne (n := n) (m := st.name) (Ne.symm hst)]
+              using hx_same st.name hst
+          have hdom0 : SamePresence s₁ n st x := samePresence_of_sameFiber hfiber
+          have hprov0 : SameProvision s₁ n st x := sameProvision_of_sameFiber hfiber
+          have hfull : State.fullCtx (State.recover s₁ n) = State.fullCtx x := by
+            exact State.fullCtx_of_nodup_of_disjoint (hnodup (State.recover s₁ n)) (hnodup x)
+              (hdisj (State.recover s₁ n)) (hdisj x) hx_approx
+          have hconf_head : Step.PsiConfinedAt st (State.recover s₁ n) x :=
+            Step.psiConfinedAt_of_confined st hst (hconf_non_self s₁ st hst)
+              (fun f hf ι hreach => hconf_iter s₁ st hst f hf ι hreach)
+              (fun f hf => hconf_acc s₁ st hst f hf)
+              (hnodup s₁) hx_approx hfull hdom0 hprov0
+              (hnodup (State.recover s₁ n)) (hnodup x)
+          exact hconf_head
+      · let x' : State N K E V := if st.name = n then x else Step.psi st x
+        have hx'_same : ∀ m, m ≠ n → SameFiberAt (Step.next st) x' m := by
+          intro m hm
+          unfold x'
+          by_cases hst : st.name = n
+          · simp [hst]
+            unfold SameFiberAt
+            rw [Step.factorization]
+            have hpsi : lookup (Step.psi st s₁).reg m = lookup s₁.reg m :=
+              Step.psi_preserves_lookup_ne st (by simpa [hst] using hm)
+            have hedit' : lookup (Step.edit st (Step.psi st s₁)).reg m =
+                lookup (Step.psi st s₁).reg m :=
+              Step.edit_preserves_lookup_ne st (by simpa [hst] using hm)
+            rw [hedit', hpsi]
+            exact hx_same m hm
+          · simp [hst]
+            by_cases hm_st : m = st.name
+            · subst m
+              rw [Step.factorization]
+              have hpsi : SameFiberAt (Step.psi st s₁) (Step.psi st x) st.name :=
+                Step.psi_preserves_sameFiberAt st (hx_same st.name hst)
+              have hno_i : st.kind ≠ Full.StepKind.oInsert := by
+                rcases hst_insert with h_eq | h_no
+                · exact False.elim (hst h_eq)
+                · exact h_no
+              have hno_r : st.kind ≠ Full.StepKind.oRemove := hst_remove
+              have hedit_self : SameFiberAt (Step.edit st (Step.psi st s₁)) (Step.psi st s₁) st.name :=
+                Step.edit_preserves_sameFiberAt_self_of_not_insert_remove st hno_i hno_r
+              exact sameFiberAt_trans hedit_self hpsi
+            · unfold SameFiberAt
+              rw [Step.factorization]
+              have hpsi_x : lookup (Step.psi st x).reg m = lookup x.reg m :=
+                Step.psi_preserves_lookup_ne st (by exact hm_st)
+              have hpsi_s : lookup (Step.psi st s₁).reg m = lookup s₁.reg m :=
+                Step.psi_preserves_lookup_ne st (by exact hm_st)
+              have hedit' : lookup (Step.edit st (Step.psi st s₁)).reg m =
+                  lookup (Step.psi st s₁).reg m :=
+                Step.edit_preserves_lookup_ne st (by exact hm_st)
+              rw [hpsi_x, hedit', hpsi_s]
+              exact hx_same m hm
+        have hx'_same_s₂ : ∀ m, m ≠ n → SameFiberAt s₂ x' m := by
+          intro m hm
+          simpa [hnext] using hx'_same m hm
+        have hx'_approx : State.Approx (State.recover s₂ n) x' := by
+          unfold x'
+          by_cases hst : st.name = n
+          · simp [hst]
+            have hself' := hself s₁ st hst hst_remove
+            have hrec_eq : State.recover (Step.next st) n = State.recover s₂ n := by rw [hnext]
+            rw [← hrec_eq]
+            exact State.Approx.trans hself' hx_approx
+          · simp [hst]
+            have hfiber : SameFiber s₁ n st x := by
+              rw [sameFiber_eq_sameFiberAt]
+              simpa [SameFiberAt, State.lookup_recover_ne (n := n) (m := st.name) (Ne.symm hst)]
+                using hx_same st.name hst
+            have hdom0 : SamePresence s₁ n st x := samePresence_of_sameFiber hfiber
+            have hprov0 : SameProvision s₁ n st x := sameProvision_of_sameFiber hfiber
+            have hfull : State.fullCtx (State.recover s₁ n) = State.fullCtx x := by
+              exact State.fullCtx_of_nodup_of_disjoint (hnodup (State.recover s₁ n)) (hnodup x)
+                (hdisj (State.recover s₁ n)) (hdisj x) hx_approx
+            have hpsi := Step.psi_preserves_approx st hx_approx hfull hdom0 hprov0
+            have hcomm' := hcomm s₁ st hst
+            have hedit' := hedit s₁ st hst hst_remove
+            have hrec_eq : State.recover (Step.next st) n = State.recover s₂ n := by rw [hnext]
+            rw [← hrec_eq]
+            exact State.Approx.trans (State.Approx.trans hedit' hcomm') hpsi
+        have htail := ih hx'_same_s₂ hx'_approx htail_remove htail_insert
+        exact htail
+
 /-- Trace-level faithful recovery exactness, engine.  The side conditions are
 stated universally over the folded state so the induction can move from `x`
 to `Step.psi st x` without re-proving them. -/
@@ -4612,6 +5074,89 @@ theorem recovery_exactness_cor62_fiber_stable {N : Type} [DecidableEq N] {K : Ty
   exact StepTrace.recovery_exactness_cor62_wellformed ht hstart iterOf hind hiter hn_mem hm_mem
     hnodup hdisj hwithdraw hwithdraw_on hopen hconf_self hself_withdraw hconf_non_self hno_remove
     hfiber_trace hconf_trace
+
+/-- Convenience form of Cor 62 that derives both `PsiFiberAgrees` and
+`PsiConfinedAgrees` from write-confined iterators/accumulators, fiber
+stability, and the usual recovery-exactness invariants. -/
+theorem recovery_exactness_cor62_confined {N : Type} [DecidableEq N] {K : Type}
+    [DecidableEq K] {E : Type} {V : K → Type u} {s t : State N K E V}
+    (ht : StepTrace s t) {n : N} {v : K → Option N}
+    (hstart : ∃ f, lookup s.reg n = some f ∧
+      f.lc = .loading f.comp.iter id v ∧ f.table = fun _ => none)
+    (iterOf : N → Iterator (Ctx K V) E)
+    (hind : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      Iterator.Independent (iterOf n) (iterOf st.name))
+    (hiter : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → iterOf st.name = f.comp.iter)
+    (hn_mem : ∀ (s' : State N K E V),
+      Iterator.InTransformMonoid (iterOf n) (State.accAt s' n))
+    (hm_mem : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f →
+        Iterator.InTransformMonoid (iterOf st.name) (Lifecycle.acc f.lc))
+    (hnodup : ∀ (s' : State N K E V), NodupKeys s'.reg)
+    (hdisj : ∀ (s' : State N K E V), PairwiseDisjointTables s'.reg)
+    (hwithdraw : ∀ (s' : State N K E V), State.Withdraws s' n)
+    (hwithdraw_on : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → State.WithdrawsOn s' n f.comp.prov)
+    (hopen : ∀ (s' : State N K E V),
+      ∃ f, lookup s'.reg n = some f ∧ ∀ o, f.lc ≠ .inactive o)
+    (hconf_self : ∀ (s' : State N K E V) (st : Step s'), st.name = n → Step.Confined st)
+    (hself_withdraw : ∀ (s' : State N K E V) (st : Step s'), st.name = n →
+      Step.SelfWithdrawsAt st)
+    (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
+    (hconf_iter : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f →
+        ∀ ι, Iterator.Reachable f.comp.iter ι → ConfinedIterator ι f.comp.prov)
+    (hconf_acc : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → ConfinedAcc (Lifecycle.acc f.lc) f.comp.prov)
+    (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
+    (hno_insert : NoNonNInsert n ht) :
+    State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
+  have hself : ∀ (s' : State N K E V) (st : Step s'), st.name = n →
+      st.kind ≠ Full.StepKind.oRemove →
+      State.Approx (State.recover (Step.next st) n) (State.recover s' n) := by
+    intro s' st hname hno
+    exact Step.recover_self_approx_of_confined st hname hno (hnodup s') (hconf_self s' st hname)
+      (hself_withdraw s' st hname)
+  have hcomm : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      State.Approx (State.recover (Step.psi st s') n) (Step.psi st (State.recover s' n)) := by
+    intro s' st hst
+    exact State.recover_psi_commute_approx_of_indep st (n := n) (Ne.symm hst) iterOf
+      (hind s' st hst) (hiter s' st hst) (hn_mem s') (hm_mem s' st hst)
+      (hnodup s') (hwithdraw s') (hwithdraw_on s' st hst) (hopen s')
+      (hconf_non_self s' st hst)
+  have hedit : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      st.kind ≠ Full.StepKind.oRemove →
+      State.Approx (State.recover (Step.next st) n) (State.recover (Step.psi st s') n) := by
+    intro s' st hst hno
+    exact State.recover_next_approx_recover_psi_of_ne_remove st (Ne.symm hst) hno
+  have hx_approx : State.Approx (State.recover s n) s := by
+    rcases hstart with ⟨f, hf, hl, htbl⟩
+    rw [State.recover_of_loading_id hf htbl hl]
+    exact State.Approx.refl s
+  have hconf_trace : PsiConfinedAgrees n s ht := by
+    apply PsiConfinedAgrees_of_confined ht (n := n) (x := s)
+    · intro m hm
+      unfold SameFiberAt
+      cases h : lookup s.reg m with
+      | none => simp [h]
+      | some g => simp [h]
+    · exact hx_approx
+    · exact hself
+    · exact hcomm
+    · exact hedit
+    · exact hno_remove
+    · exact hno_insert
+    · exact hconf_non_self
+    · intro s' st hst f hf ι hreach
+      exact hconf_iter s' st hst f hf ι hreach
+    · intro s' st hst f hf
+      exact hconf_acc s' st hst f hf
+    · exact hnodup
+    · exact hdisj
+  exact StepTrace.recovery_exactness_cor62_fiber_stable ht hstart iterOf hind hiter hn_mem hm_mem
+    hnodup hdisj hwithdraw hwithdraw_on hopen hconf_self hself_withdraw hconf_non_self hno_remove
+    hno_insert hconf_trace
 
 end StepTrace
 

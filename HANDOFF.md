@@ -153,6 +153,21 @@ theorem State.recover_psi_commute_approx_of_indep
 - `StepTrace.PsiFiberAgrees_of_sameFiberAt`
 - `StepTrace.recovery_exactness_cor62_fiber_stable`
 
+### 5.6.1 新增 write-confinement 接口（用于消去 `PsiConfinedAgrees`）
+
+- `ConfinedIterator ι P`：iterator 的 write half，所有成功 step 在 `P` 外保持 sigma 不变
+- `ConfinedAcc κ P`：accumulator 的 write half
+- `Component.Confined`
+- `Lifecycle.Confined`
+- `confinedEffect_of_confinedIterator`
+- `confinedEffect_of_confinedAcc`
+- `recover_preserves_confined_disjoint`
+- `confinedEffect_transfer_of_approx`
+- `confinedEffect_of_confinedIterator_of_recover`
+- `confinedEffect_of_confinedAcc_of_recover`
+- `Step.psiConfinedAt_of_confined`
+- `StepTrace.PsiConfinedAgrees_of_confined`
+
 这些是 8.2 实例化所需的保持定理；`Step.next_*` 组合了 `edit ∘ psi`。
 
 ### 5.7 Trace-level Thm 61 / Cor 62（已编译，带全称 side conditions）
@@ -162,6 +177,8 @@ theorem StepTrace.recovery_exactness_aux
 theorem StepTrace.recovery_exactness_recoverAcc
 theorem StepTrace.recovery_exactness_cor62
 theorem StepTrace.recovery_exactness_cor62_wellformed
+theorem StepTrace.recovery_exactness_cor62_fiber_stable
+theorem StepTrace.recovery_exactness_cor62_confined
 ```
 
 `recovery_exactness_cor62_wellformed` 是方便形式：在全局 `NodupKeys` /
@@ -277,25 +294,24 @@ def SameFiber s n st x : Prop :=
 3. 已证明 `NodupKeys` / `PairwiseDisjointTables` 在 `Step.psi`、`Step.edit`、`Step.next`、`State.recover` 下的保持（见 5.6）。
 4. 已把 `recovery_exactness_aux` / `recoverAcc` / `cor62` 中全称 `hnx/hdisjx` 改为局部初始假设，并用保持定理在归纳中自动推进。
 5. 已增加 `StepTrace.recovery_exactness_cor62_wellformed`，用全局 well-formedness 消去 `hnrec/hnx/hdisjrec/hdisjx`；并把 `SamePresence` / `SameProvision` 合并为 `SameFiber`。
-6. 已把 `SameFiber` / `PsiConfinedAt` 的全称 side conditions 改为 trace-local 的 `PsiFiberAgrees` / `PsiConfinedAgrees`，沿着 `foldPsiExcept` 递归携带。仍待从更 primitive 的 trace 不变量推导这两个 trace 谓词。
-
-剩余工作是把 Cor 62 的全称 side conditions 从 well-formedness 与 trace 不变量中真正推导出来（见 8.2）。
+6. 已把 `SameFiber` / `PsiConfinedAt` 的全称 side conditions 改为 trace-local 的 `PsiFiberAgrees` / `PsiConfinedAgrees`，沿着 `foldPsiExcept` 递归携带。
+7. 已从 primitive trace 不变量推导这两个 trace 谓词：`PsiFiberAgrees_of_sameFiberAt` 与 `PsiConfinedAgrees_of_confined`（后者需要新增的 write-confinement 接口，见 5.6.1）。
 
 ### 8.2 具体实例化 trace-level Thm 61 / Cor 62
 
-现在仍需从 well-formedness + independence / trace 不变量推导或进一步消去：
+现在已从 well-formedness + independence / trace 不变量推导：
 
-- ✅ `PsiFiberAgrees`：已由 `PsiFiberAgrees_of_sameFiberAt` 从 `SameFiberAt` + `NoNonNInsert` + `hno_remove` 推出
-- `PsiConfinedAgrees`（即逐点的 `Step.PsiConfinedAt st (State.recover s n) x`）
+- ✅ `PsiFiberAgrees`：由 `PsiFiberAgrees_of_sameFiberAt` 从 `SameFiberAt` + `NoNonNInsert` + `hno_remove` 推出
+- ✅ `PsiConfinedAgrees`：由 `PsiConfinedAgrees_of_confined` 从 write-confined iterators/accumulators + `SameFiberAt` + `NoNonNInsert` + `hno_remove` + recovery `≈` invariants 推出
+- ✅ `recovery_exactness_cor62_confined`：在 `cor62_fiber_stable` 的基础上额外接受 `hconf_iter` / `hconf_acc`，自动导出 `hconf_trace`
 
 `NodupKeys` / `PairwiseDisjointTables` 相关 side conditions 已通过保持定理和 `cor62_wellformed` 消去；`SamePresence` / `SameProvision` 已合并为 `SameFiber`，并打包进 `PsiFiberAgrees`。
 
-这需要：
+当前仍可选的后续工作：
 
-- ✅ 证明 `NodupKeys` / `PairwiseDisjointTables` 在 faithful step 下保持（见 5.6）；
-- 或者把 `ConfinedWellFormed` 的保持定理迁移到 faithful 模型；
-- 用 `ConfinedEffect` + provision 不相交来推出 `SameProvision`；
-- 用 trace 中其他 fiber 不删除 `n` 来推出 `SamePresence`。
+- 把 `hconf_iter` / `hconf_acc` 从更 primitive 的 `Component.Confined` / `Lifecycle.Confined` 与保持定理推出；
+- 或把 `ConfinedWellFormed` / `TableConfinedWellFormed` 的保持定理迁移到 faithful 模型；
+- 用 `ConfinedEffect` + provision 不相交来推出 `SameProvision`（已由 `SameFiberAt` 路线覆盖，也可再整理）。
 
 ### 8.3 模块转正
 
@@ -311,7 +327,7 @@ def SameFiber s n st x : Prop :=
 1. ✅ 补 self-step 覆盖（含 `lBegin/lRaise/lDivertAbort/lLeave/oRetire`）并构造 `Step.recover_self_approx_of_confined`；
 2. ✅ 构造 Cor 62 的 `hself` / `hcomm` / `hedit` 并实现 `StepTrace.recovery_exactness_cor62`；
 3. ✅ 证明 `NodupKeys` / `PairwiseDisjointTables` 在 `Step.psi` / `Step.edit` 下保持（并补了 `Step.next` / `State.recover` 版本）；
-4. 🔄 已把保持定理接入 folded-state 的 `NodupKeys` / `PairwiseDisjointTables` 推进；继续做 `SamePresence` / `SameProvision` / `PsiConfinedAt` 的实例化；
+4. ✅ 已把保持定理接入 folded-state 的 `NodupKeys` / `PairwiseDisjointTables` 推进；并完成 `PsiConfinedAgrees` 的实例化（新增 write-confinement 接口）；
 5. 最后做模块整合和文档更新。
 
 ## 10. 验证命令
