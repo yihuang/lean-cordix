@@ -3545,6 +3545,20 @@ theorem sameFiber_of_samePresence_sameProvision {s : State N K E V} {n : N}
     have hyn : lookup x.reg st.name = none := Option.not_isSome_iff_eq_none.mp hy
     simp [hxn, hyn]
 
+/-- Fiber agreement at a single name, between two arbitrary states.  This is
+the pointwise invariant that `PsiFiberAgrees` is built from. -/
+def SameFiberAt {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
+    {V : K → Type u} {E : Type} (x y : State N K E V) (m : N) : Prop :=
+  match lookup x.reg m, lookup y.reg m with
+  | some gx, some gy => gx.comp.prov = gy.comp.prov
+  | none, none => True
+  | _, _ => False
+
+/-- `SameFiber` is `SameFiberAt` after recovering `n`. -/
+theorem sameFiber_eq_sameFiberAt {s : State N K E V} {n : N} {st : Step s}
+    {x : State N K E V} : SameFiber s n st x = SameFiberAt (State.recover s n) x st.name := by
+  rfl
+
 /-- A finite trace of faithful `Step` records. -/
 inductive StepTrace : State N K E V → State N K E V → Type (max 1 u) where
   | nil (s : State N K E V) : StepTrace s s
