@@ -334,6 +334,189 @@ theorem pairwiseDisjointTables_del {N : Type} [DecidableEq N] {K : Type}
   intro a ha b hb hab k
   exact hdisj a (mem_of_mem_del ha) b (mem_of_mem_del hb) hab k
 
+/-- The pointwise update does not add old keys under new names. -/
+theorem key_not_mem_set {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
+    {V : K → Type u} {E : Type} {r : Registry N K V E} {n : N} {f : Fiber N K V E} {p : N}
+    (hn : p ∉ r.map (fun q => q.1)) (hp : p ≠ n) :
+    p ∉ (set r n f).map (fun q => q.1) := by
+  revert hn
+  induction r with
+  | nil =>
+      intro hn h
+      simp [set] at h
+      exact hp h
+  | cons q rest ih =>
+      intro hn h
+      by_cases hq : q.1 = n
+      · simp [set, hq] at h
+        rcases h with hEq | hIn
+        · exact hp hEq
+        · have hnq : p ∉ rest.map (fun q => q.1) := by
+            intro h'
+            exact hn (by simp [h'])
+          have hIn' : p ∈ rest.map (fun q => q.1) := by
+            rw [List.mem_map]
+            rcases hIn with ⟨x, hx⟩
+            exact ⟨(p, x), hx, rfl⟩
+          exact absurd hIn' hnq
+      · simp [set, hq] at h
+        rcases h with hEq | hIn
+        · exact hn (by simp [hEq])
+        · have hnq : p ∉ rest.map (fun q => q.1) := by
+            intro h'
+            exact hn (by simp [h'])
+          exact ih hnq (by
+            rw [List.mem_map]
+            rcases hIn with ⟨x, hx⟩
+            exact ⟨(p, x), hx, rfl⟩)
+
+/-- The pointwise update preserves duplicate-free names. -/
+theorem nodupKeys_set {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
+    {V : K → Type u} {E : Type} (r : Registry N K V E) (n : N) (f : Fiber N K V E)
+    (hn : NodupKeys r) : NodupKeys (set r n f) := by
+  induction r with
+  | nil => simp [set, NodupKeys]
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · subst n
+        simp [set]
+        change (p.1 :: rest.map (fun q => q.1)).Nodup
+        change (p.1 :: rest.map (fun q => q.1)).Nodup at hn
+        exact hn
+      · simp [set, hp]
+        change ((p.1 :: (set rest n f).map (fun q => q.1)).Nodup)
+        rw [List.nodup_cons]
+        change ((p.1 :: rest.map (fun q => q.1)).Nodup) at hn
+        rw [List.nodup_cons] at hn
+        rcases hn with ⟨hnmem, hnrest⟩
+        constructor
+        · exact key_not_mem_set hnmem hp
+        · exact ih hnrest
+
+/-- If a pair with a key different from `n` is in `set r n f`, it is already
+in `r` (the pointwise update only changes the entry at `n`). -/
+theorem mem_of_mem_set_ne {N : Type} [DecidableEq N] {K : Type}
+    {V : K → Type u} {E : Type} {r : Registry N K V E} {n : N} {f : Fiber N K V E}
+    {p : N × Fiber N K V E} (hp : p ∈ set r n f) (hpn : p.1 ≠ n) : p ∈ r := by
+  revert hpn
+  induction r with
+  | nil =>
+      intro hpn
+      simp [set] at hp
+      subst hp
+      exact False.elim (hpn rfl)
+  | cons q rest ih =>
+      intro hpn
+      by_cases hq : q.1 = n
+      · subst n
+        simp [set] at hp
+        rcases hp with hpq | hrest
+        · have hp_eq : p.1 = q.1 := by rw [hpq]
+          exact False.elim (hpn (by simpa [hp_eq]))
+        · exact List.mem_cons_of_mem q hrest
+      · simp [set, hq] at hp
+        rcases hp with hpq | hrest
+        · subst q
+          simp
+        · exact List.mem_cons_of_mem q (ih hrest hpn)
+
+/-- Replacing or inserting a fiber with a table that is disjoint from all
+other existing tables preserves pairwise disjointness. -/
+theorem pairwiseDisjointTables_set_of_table_disjoint_from_others {N : Type}
+    [DecidableEq N] {K : Type} [DecidableEq K] {V : K → Type u} {E : Type}
+    {r : Registry N K V E} (hnodup : NodupKeys r) (hdisj : PairwiseDisjointTables r)
+    {n : N} {g : Fiber N K V E}
+    (hdisj_new : ∀ p ∈ r, p.1 ≠ n → ∀ k, g.table k ≠ none → p.2.table k = none) :
+    PairwiseDisjointTables (set r n g) := by
+  intro a ha b hb hab k
+  have hnodup' : NodupKeys (set r n g) := nodupKeys_set r n g hnodup
+  rcases a with ⟨aN, aF⟩
+  rcases b with ⟨bN, bF⟩
+  have ha_lookup : lookup (set r n g) aN = some aF := by
+    simpa using lookup_self_of_mem_of_nodup hnodup' ha
+  have hb_lookup : lookup (set r n g) bN = some bF := by
+    simpa using lookup_self_of_mem_of_nodup hnodup' hb
+  by_cases han : aN = n
+  · subst aN
+    have hg_a : aF = g := by
+      exact lookup_eq_of_nodup hnodup' ha_lookup (lookup_set_eq r n g)
+    by_cases hbn : bN = n
+    · subst bN
+      exact False.elim (hab rfl)
+    · have hb_mem : (bN, bF) ∈ r := mem_of_mem_set_ne hb hbn
+      by_cases hg_none : g.table k = none
+      · subst aF
+        exact Or.inl hg_none
+      · have hb_none : bF.table k = none := hdisj_new (bN, bF) hb_mem hbn k hg_none
+        subst aF
+        exact Or.inr hb_none
+  · have ha_mem : (aN, aF) ∈ r := mem_of_mem_set_ne ha han
+    by_cases hbn : bN = n
+    · subst bN
+      have hg_b : bF = g := by
+        exact lookup_eq_of_nodup hnodup' hb_lookup (lookup_set_eq r n g)
+      by_cases hg_none : g.table k = none
+      · subst bF
+        exact Or.inr hg_none
+      · have ha_none : aF.table k = none := hdisj_new (aN, aF) ha_mem han k hg_none
+        subst bF
+        exact Or.inl ha_none
+    · have hb_mem : (bN, bF) ∈ r := mem_of_mem_set_ne hb hbn
+      exact hdisj (aN, aF) ha_mem (bN, bF) hb_mem (by
+        intro hEq
+        exact hab hEq) k
+
+/-- Replacing or inserting a fiber with an empty table preserves pairwise
+disjointness. -/
+theorem pairwiseDisjointTables_set_empty {N : Type} [DecidableEq N]
+    {K : Type} [DecidableEq K] {V : K → Type u} {E : Type} {r : Registry N K V E}
+    (hnodup : NodupKeys r) (hdisj : PairwiseDisjointTables r)
+    {n : N} {g : Fiber N K V E} (hg : g.table = fun _ => none) :
+    PairwiseDisjointTables (set r n g) := by
+  intro a ha b hb hab k
+  have hnodup' : NodupKeys (set r n g) := nodupKeys_set r n g hnodup
+  rcases a with ⟨aN, aF⟩
+  rcases b with ⟨bN, bF⟩
+  have ha_lookup : lookup (set r n g) aN = some aF := by
+    simpa using lookup_self_of_mem_of_nodup hnodup' ha
+  have hb_lookup : lookup (set r n g) bN = some bF := by
+    simpa using lookup_self_of_mem_of_nodup hnodup' hb
+  by_cases han : aN = n
+  · subst aN
+    have hg_a : aF = g := by
+      exact lookup_eq_of_nodup hnodup' ha_lookup (lookup_set_eq r n g)
+    subst aF
+    simp [hg]
+  · have ha_mem : (aN, aF) ∈ r := mem_of_mem_set_ne ha han
+    by_cases hbn : bN = n
+    · subst bN
+      have hg_b : bF = g := by
+        exact lookup_eq_of_nodup hnodup' hb_lookup (lookup_set_eq r n g)
+      subst bF
+      simp [hg]
+    · have hb_mem : (bN, bF) ∈ r := mem_of_mem_set_ne hb hbn
+      exact hdisj (aN, aF) ha_mem (bN, bF) hb_mem (by
+        intro hEq
+        exact hab hEq) k
+
+/-- Replacing a fiber while keeping its table preserves pairwise
+disjointness. -/
+theorem pairwiseDisjointTables_set_preserves_table {N : Type} [DecidableEq N]
+    {K : Type} [DecidableEq K] {V : K → Type u} {E : Type} {r : Registry N K V E}
+    (hnodup : NodupKeys r) (hdisj : PairwiseDisjointTables r)
+    {n : N} {g new : Fiber N K V E} (hg : lookup r n = some g)
+    (htable : new.table = g.table) : PairwiseDisjointTables (set r n new) := by
+  apply pairwiseDisjointTables_set_of_table_disjoint_from_others hnodup hdisj
+  intro p hp hpn k hk
+  have hg_nonne : g.table k ≠ none := by
+    rw [← htable]
+    exact hk
+  rcases hdisj (n, g) (lookup_some_mem hg) p hp (by
+    intro hEq
+    exact hpn hEq.symm) k with hg_none | hp_none
+  · exact False.elim (hg_nonne hg_none)
+  · exact hp_none
+
 /-- If a name does not occur in a registry, deleting it is the identity. -/
 theorem del_eq_self_of_not_mem {N : Type} [DecidableEq N] {K : Type}
     {V : K → Type u} {E : Type} {r : Registry N K V E} {n : N}
@@ -629,6 +812,65 @@ theorem lookup_writeEffect_eq {s : State N K E V} {n : N} {f : Fiber N K V E}
   rw [hf]
   simp [lookup_set_eq]
 
+/-- `writeEffect` preserves duplicate-free names. -/
+theorem writeEffect_preserves_nodupKeys {s : State N K E V} {n : N} {δ : Ctx K V}
+    (hn : NodupKeys s.reg) : NodupKeys (State.writeEffect s n δ).reg := by
+  unfold State.writeEffect
+  by_cases h : (lookup s.reg n).isSome
+  · rcases Option.isSome_iff_exists.mp h with ⟨g, hg⟩
+    simp [hg]
+    exact nodupKeys_set s.reg n { g with table := splitTable g.comp.prov δ.2 } hn
+  · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp h
+    simp [hn']
+    exact hn
+
+/-- `recover` preserves duplicate-free names. -/
+theorem recover_preserves_nodupKeys {s : State N K E V} {n : N}
+    (hn : NodupKeys s.reg) : NodupKeys (State.recover s n).reg := by
+  unfold State.recover
+  by_cases h : (lookup s.reg n).isSome
+  · rcases Option.isSome_iff_exists.mp h with ⟨f, hf⟩
+    cases hlc : f.lc with
+    | inactive o =>
+        simp [hf, hlc]
+        exact hn
+    | loading i κ v =>
+        simpa [hf, hlc] using nodupKeys_set s.reg n
+          { f with table := fun _ => none, lc := Lifecycle.loading i κ v } hn
+    | active κ v =>
+        simpa [hf, hlc] using nodupKeys_set s.reg n
+          { f with table := fun _ => none, lc := Lifecycle.active κ v } hn
+    | unloading κ v o =>
+        simpa [hf, hlc] using nodupKeys_set s.reg n
+          { f with table := fun _ => none, lc := Lifecycle.unloading κ v o } hn
+  · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp h
+    simp [hn']
+    exact hn
+
+/-- `recover` preserves pairwise disjointness of tables. -/
+theorem recover_preserves_pairwiseDisjointTables {s : State N K E V} {n : N}
+    (hnodup : NodupKeys s.reg) (hdisj : PairwiseDisjointTables s.reg) :
+    PairwiseDisjointTables (State.recover s n).reg := by
+  unfold State.recover
+  by_cases h : (lookup s.reg n).isSome
+  · rcases Option.isSome_iff_exists.mp h with ⟨f, hf⟩
+    cases hlc : f.lc with
+    | inactive o =>
+        simp [hf, hlc]
+        exact hdisj
+    | loading i κ v =>
+        simpa [hf, hlc] using pairwiseDisjointTables_set_empty hnodup hdisj
+          (g := { f with table := fun _ => none, lc := Lifecycle.loading i κ v }) rfl
+    | active κ v =>
+        simpa [hf, hlc] using pairwiseDisjointTables_set_empty hnodup hdisj
+          (g := { f with table := fun _ => none, lc := Lifecycle.active κ v }) rfl
+    | unloading κ v o =>
+        simpa [hf, hlc] using pairwiseDisjointTables_set_empty hnodup hdisj
+          (g := { f with table := fun _ => none, lc := Lifecycle.unloading κ v o }) rfl
+  · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp h
+    simp [hn']
+    exact hdisj
+
 end State
 
 /-- A `FullCtx` delta is **confined to `n`** when, outside `n`'s provision,
@@ -643,6 +885,31 @@ def ConfinedEffect {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
     (∀ k, k ∉ f.comp.prov → f.table k = none) ∧
     (∀ p ∈ s.reg, p.1 ≠ n →
       ∀ k ∈ f.comp.prov, p.2.table k = none)
+
+/-- `writeEffect` preserves pairwise disjointness of tables under
+confinement of the effect. -/
+theorem State.writeEffect_preserves_pairwiseDisjointTables {s : State N K E V}
+    {n : N} {δ : Ctx K V}
+    (hnodup : NodupKeys s.reg) (hdisj : PairwiseDisjointTables s.reg)
+    (hconf : ConfinedEffect s n δ) :
+    PairwiseDisjointTables (State.writeEffect s n δ).reg := by
+  by_cases h : (lookup s.reg n).isSome
+  · rcases Option.isSome_iff_exists.mp h with ⟨g, hg⟩
+    rw [State.writeEffect_eq_of_lookup hg]
+    apply pairwiseDisjointTables_set_of_table_disjoint_from_others hnodup hdisj
+    intro p hp hpn k hk
+    rcases hconf with ⟨f, hf, hout, hsupport, hdisj_prov⟩
+    have hgf : g = f := lookup_eq_of_nodup hnodup hg hf
+    subst g
+    have hk_in : k ∈ f.comp.prov := by
+      by_cases hkin : k ∈ f.comp.prov
+      · exact hkin
+      · exfalso
+        simp [splitTable, hkin] at hk
+    exact hdisj_prov p hp hpn k hk_in
+  · have hn' : lookup s.reg n = none := Option.not_isSome_iff_eq_none.mp h
+    simp [State.writeEffect, hn']
+    exact hdisj
 
 /-- `Option.or` is commutative when the two options are not both present. -/
 theorem Option.or_comm_of_not_both {α : Type u} (a b : Option α)
@@ -1067,6 +1334,297 @@ def PsiConfinedAt (st : Step s) (x y : State N K E V) : Prop :=
       ConfinedEffect x n (κ (State.fullCtx x)) ∧
       ConfinedEffect y n (κ (State.fullCtx y))
   | _ => True
+
+/-- `Step.psi` preserves duplicate-free names. -/
+theorem psi_preserves_nodupKeys {s x : State N K E V} (st : Step s)
+    (hn : NodupKeys x.reg) : NodupKeys (Step.psi st x).reg := by
+  cases st with
+  | oInsert n c p hn0 hp hdisj => simpa [Step.psi] using hn
+  | oRetire n f hf => simpa [Step.psi] using hn
+  | oRemove n f o hf hl hchild => simpa [Step.psi] using hn
+  | lBegin n f v hf hl ht htable => simpa [Step.psi] using hn
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simpa [Step.psi, hstep_x] using hn
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          simpa [Step.psi, hstep_x] using State.writeEffect_preserves_nodupKeys hn
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simpa [Step.psi, hstep_x] using hn
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          simpa [Step.psi, hstep_x] using State.writeEffect_preserves_nodupKeys hn
+  | lRaise n f ι κ v e hreach hf hl hstep => simpa [Step.psi] using hn
+  | lDivertAbort n f ι κ v hreach hf hl ht => simpa [Step.psi] using hn
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simpa [Step.psi, hstep_x] using hn
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          simpa [Step.psi, hstep_x] using State.writeEffect_preserves_nodupKeys hn
+  | lLeave n f κ v hf hl ht => simpa [Step.psi] using hn
+  | lUnload n f κ v o hf hl hg =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.psi, hg] using State.writeEffect_preserves_nodupKeys hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.psi, hn'] using hn
+
+/-- `Step.edit` preserves duplicate-free names. -/
+theorem edit_preserves_nodupKeys {s x : State N K E V} (st : Step s)
+    (hn : NodupKeys x.reg) : NodupKeys (Step.edit st x).reg := by
+  cases st with
+  | oInsert n c p hn0 hp hdisj =>
+      simpa [Step.edit] using nodupKeys_set x.reg n
+        (Fiber.mk c p (fun _ => none) false (.inactive none)) hn
+  | oRetire n f hf =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n { g with retired := true } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | oRemove n f o hf hl hchild =>
+      simpa [Step.edit] using nodupKeys_del hn n
+  | lBegin n f v hf hl ht htable =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .loading g.comp.iter id v } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .loading ι' (κ ∘ h) v } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .active (κ ∘ h) v } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | lRaise n f ι κ v e hreach hf hl hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .unloading κ v (some e) } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | lDivertAbort n f ι κ v hreach hf hl ht =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .unloading κ v none } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .unloading (κ ∘ h) v none } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | lLeave n f κ v hf hl ht =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .unloading κ v none } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+  | lUnload n f κ v o hf hl hg =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using nodupKeys_set x.reg n
+          { g with lc := .inactive o } hn
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hn
+
+/-- `Step.psi` preserves pairwise disjointness of tables, assuming the
+recomputed effect is confined at the input state. -/
+theorem psi_preserves_pairwiseDisjointTables {s x : State N K E V} (st : Step s)
+    (hnodup : NodupKeys x.reg) (hdisj : PairwiseDisjointTables x.reg)
+    (hconf : Step.PsiConfinedAt st x x) :
+    PairwiseDisjointTables (Step.psi st x).reg := by
+  cases st with
+  | oInsert n c p hn0 hp hdisj0 => simpa [Step.psi] using hdisj
+  | oRetire n f hf => simpa [Step.psi] using hdisj
+  | oRemove n f o hf hl hchild => simpa [Step.psi] using hdisj
+  | lBegin n f v hf hl ht htable => simpa [Step.psi] using hdisj
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simpa [Step.psi, hstep_x] using hdisj
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          have hconf' := hconf δ' ⟨h', c', hstep_x⟩ ⟨h', c', hstep_x⟩
+          simpa [Step.psi, hstep_x] using
+            State.writeEffect_preserves_pairwiseDisjointTables hnodup hdisj hconf'.1
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simpa [Step.psi, hstep_x] using hdisj
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          have hconf' := hconf δ' ⟨h', c', hstep_x⟩ ⟨h', c', hstep_x⟩
+          simpa [Step.psi, hstep_x] using
+            State.writeEffect_preserves_pairwiseDisjointTables hnodup hdisj hconf'.1
+  | lRaise n f ι κ v e hreach hf hl hstep => simpa [Step.psi] using hdisj
+  | lDivertAbort n f ι κ v hreach hf hl ht => simpa [Step.psi] using hdisj
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      cases hstep_x : Iterator.step ι (State.fullCtx x) with
+      | error e => simpa [Step.psi, hstep_x] using hdisj
+      | ok p =>
+          rcases p with ⟨δ', h', c'⟩
+          have hconf' := hconf δ' ⟨h', c', hstep_x⟩ ⟨h', c', hstep_x⟩
+          simpa [Step.psi, hstep_x] using
+            State.writeEffect_preserves_pairwiseDisjointTables hnodup hdisj hconf'.1
+  | lLeave n f κ v hf hl ht => simpa [Step.psi] using hdisj
+  | lUnload n f κ v o hf hl hg =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        have hconf' := hconf
+        simpa [Step.psi, hg] using
+          State.writeEffect_preserves_pairwiseDisjointTables hnodup hdisj hconf'.1
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.psi, hn'] using hdisj
+
+/-- `Step.edit` preserves pairwise disjointness of tables. -/
+theorem edit_preserves_pairwiseDisjointTables {s x : State N K E V} (st : Step s)
+    (hnodup : NodupKeys x.reg) (hdisj : PairwiseDisjointTables x.reg) :
+    PairwiseDisjointTables (Step.edit st x).reg := by
+  cases st with
+  | oInsert n c p hn0 hp hdisj0 =>
+      simpa [Step.edit] using pairwiseDisjointTables_set_empty hnodup hdisj
+        (g := Fiber.mk c p (fun _ => none) false (.inactive none)) rfl
+  | oRetire n f hf =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with retired := true }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | oRemove n f o hf hl hchild =>
+      simpa [Step.edit] using pairwiseDisjointTables_del hdisj n
+  | lBegin n f v hf hl ht htable =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .loading g.comp.iter id v }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .loading ι' (κ ∘ h) v }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .active (κ ∘ h) v }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | lRaise n f ι κ v e hreach hf hl hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .unloading κ v (some e) }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | lDivertAbort n f ι κ v hreach hf hl ht =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .unloading κ v none }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .unloading (κ ∘ h) v none }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | lLeave n f κ v hf hl ht =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .unloading κ v none }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+  | lUnload n f κ v o hf hl hg =>
+      by_cases hx : (lookup x.reg n).isSome
+      · rcases Option.isSome_iff_exists.mp hx with ⟨g, hg⟩
+        simpa [Step.edit, hg] using
+          pairwiseDisjointTables_set_preserves_table hnodup hdisj hg
+            (new := { g with lc := .inactive o }) rfl
+      · have hn' : lookup x.reg n = none := Option.not_isSome_iff_eq_none.mp hx
+        simpa [Step.edit, hn'] using hdisj
+
+/-- If a step is confined at its source state, then `PsiConfinedAt` holds
+with both arguments equal to that source state. -/
+theorem psiConfinedAt_self_of_confined {s : State N K E V} (st : Step s)
+    (hconf : Step.Confined st) : Step.PsiConfinedAt st s s := by
+  cases st with
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hδ : δ = δ' := by
+        rw [hstep] at hx
+        injection hx with hpair
+        injection hpair with hδ
+      subst δ'
+      exact ⟨hconf, hconf⟩
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hδ : δ = δ' := by
+        rw [hstep] at hx
+        injection hx with hpair
+        injection hpair with hδ
+      subst δ'
+      exact ⟨hconf, hconf⟩
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep =>
+      intro δ' hx hy
+      rcases hx with ⟨h', c', hx⟩
+      have hδ : δ = δ' := by
+        rw [hstep] at hx
+        injection hx with hpair
+        injection hpair with hδ
+      subst δ'
+      exact ⟨hconf, hconf⟩
+  | lUnload n f κ v o hf hl hg =>
+      simpa [Step.Confined, Step.PsiConfinedAt] using hconf
+  | _ => trivial
+
+/-- `Step.next` preserves duplicate-free names. -/
+theorem next_preserves_nodupKeys {s : State N K E V} (st : Step s)
+    (hn : NodupKeys s.reg) : NodupKeys (Step.next st).reg := by
+  rw [Step.factorization]
+  exact Step.edit_preserves_nodupKeys st (Step.psi_preserves_nodupKeys st hn)
+
+/-- `Step.next` preserves pairwise disjointness of tables, provided the
+step's `Ψ` effect is confined at the source state. -/
+theorem next_preserves_pairwiseDisjointTables {s : State N K E V} (st : Step s)
+    (hnodup : NodupKeys s.reg) (hdisj : PairwiseDisjointTables s.reg)
+    (hconf : Step.Confined st) : PairwiseDisjointTables (Step.next st).reg := by
+  rw [Step.factorization]
+  exact Step.edit_preserves_pairwiseDisjointTables st
+    (Step.psi_preserves_nodupKeys st hnodup)
+    (Step.psi_preserves_pairwiseDisjointTables st hnodup hdisj
+      (Step.psiConfinedAt_self_of_confined st hconf))
 
 end Step
 
