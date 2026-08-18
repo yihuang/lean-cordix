@@ -4568,6 +4568,51 @@ theorem recovery_exactness_cor62_wellformed {N : Type} [DecidableEq N] {K : Type
     (fun s' => State.recover_preserves_pairwiseDisjointTables (hnodup s') (hdisj s'))
     (hdisj s) hconf_trace
 
+/-- Convenience form of Cor 62 that also derives `PsiFiberAgrees` from
+`SameFiberAt` (reflexive at the start), `NoNonNInsert`, and `hno_remove`. -/
+theorem recovery_exactness_cor62_fiber_stable {N : Type} [DecidableEq N] {K : Type}
+    [DecidableEq K] {E : Type} {V : K → Type u} {s t : State N K E V}
+    (ht : StepTrace s t) {n : N} {v : K → Option N}
+    (hstart : ∃ f, lookup s.reg n = some f ∧
+      f.lc = .loading f.comp.iter id v ∧ f.table = fun _ => none)
+    (iterOf : N → Iterator (Ctx K V) E)
+    (hind : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      Iterator.Independent (iterOf n) (iterOf st.name))
+    (hiter : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → iterOf st.name = f.comp.iter)
+    (hn_mem : ∀ (s' : State N K E V),
+      Iterator.InTransformMonoid (iterOf n) (State.accAt s' n))
+    (hm_mem : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f →
+        Iterator.InTransformMonoid (iterOf st.name) (Lifecycle.acc f.lc))
+    (hnodup : ∀ (s' : State N K E V), NodupKeys s'.reg)
+    (hdisj : ∀ (s' : State N K E V), PairwiseDisjointTables s'.reg)
+    (hwithdraw : ∀ (s' : State N K E V), State.Withdraws s' n)
+    (hwithdraw_on : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n →
+      ∀ f, lookup s'.reg st.name = some f → State.WithdrawsOn s' n f.comp.prov)
+    (hopen : ∀ (s' : State N K E V),
+      ∃ f, lookup s'.reg n = some f ∧ ∀ o, f.lc ≠ .inactive o)
+    (hconf_self : ∀ (s' : State N K E V) (st : Step s'), st.name = n → Step.Confined st)
+    (hself_withdraw : ∀ (s' : State N K E V) (st : Step s'), st.name = n →
+      Step.SelfWithdrawsAt st)
+    (hconf_non_self : ∀ (s' : State N K E V) (st : Step s'), st.name ≠ n → Step.Confined st)
+    (hno_remove : StepTrace.AllSteps (fun {s'} (st : Step s') => st.kind ≠ Full.StepKind.oRemove) ht)
+    (hno_insert : NoNonNInsert n ht)
+    (hconf_trace : PsiConfinedAgrees n s ht) :
+    State.Approx (State.recover t n) (StepTrace.foldPsiExcept ht n s) := by
+  have hfiber_trace : PsiFiberAgrees n s ht := by
+    apply PsiFiberAgrees_of_sameFiberAt ht (n := n) (x := s)
+    · intro m hm
+      unfold SameFiberAt
+      cases h : lookup s.reg m with
+      | none => simp [h]
+      | some g => simp [h]
+    · exact hno_insert
+    · exact hno_remove
+  exact StepTrace.recovery_exactness_cor62_wellformed ht hstart iterOf hind hiter hn_mem hm_mem
+    hnodup hdisj hwithdraw hwithdraw_on hopen hconf_self hself_withdraw hconf_non_self hno_remove
+    hfiber_trace hconf_trace
+
 end StepTrace
 
 end Faithful

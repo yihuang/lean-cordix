@@ -151,6 +151,7 @@ theorem State.recover_psi_commute_approx_of_indep
 - `Step.edit_preserves_sameFiberAt_self_of_not_insert_remove`
 - `sameFiberAt_trans`
 - `StepTrace.PsiFiberAgrees_of_sameFiberAt`
+- `StepTrace.recovery_exactness_cor62_fiber_stable`
 
 这些是 8.2 实例化所需的保持定理；`Step.next_*` 组合了 `edit ∘ psi`。
 
