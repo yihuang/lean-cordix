@@ -14,4 +14,5 @@ import LeanCordix.Invariance
 import LeanCordix.Global
 import LeanCordix.Independence
 import LeanCordix.FullContext
+import LeanCordix.Faithful
 import LeanCordix.Termination
