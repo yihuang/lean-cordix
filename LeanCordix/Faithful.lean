@@ -142,6 +142,11 @@ theorem set_eq_self_of_lookup_eq {N : Type} [DecidableEq N] {K : Type}
       · simp [set, h]
         exact ih (by simpa [lookup, h] using hf)
 
+/-- The names of a registry are duplicate-free. -/
+def NodupKeys {N : Type} {K : Type} {V : K → Type u} {E : Type}
+    (r : Registry N K V E) : Prop :=
+  List.Nodup (r.map (fun p => p.1))
+
 /-- The coeffect context of a state: the union of the tables of active
 fibers. -/
 def sigmaOf {N : Type} {K : Type} {V : K → Type u} {E : Type}
@@ -318,6 +323,7 @@ def ConfinedEffect {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
     (δ : Ctx K V) : Prop :=
   ∃ f, lookup s.reg n = some f ∧
     (∀ k, k ∉ f.comp.prov → rawSigma s.reg k = δ.2 k) ∧
+    (∀ k, k ∉ f.comp.prov → f.table k = none) ∧
     (∀ m g, lookup s.reg m = some g → m ≠ n →
       ∀ k ∈ f.comp.prov, g.table k = none)
 
