@@ -297,6 +297,16 @@ theorem recover_of_loading_id {s : State N K E V} {n : N}
       simp [State.recover, hf, htable', hl', State.fullCtx,
         set_eq_self_of_lookup_eq hf']
 
+/-- `recover` on a loading fiber applies its accumulator to the full context
+and empties the fiber's table. -/
+theorem recover_loading_eq {N : Type} [DecidableEq N] {K : Type} {V : K → Type u}
+    {E : Type} {s : State N K E V} {n : N} {f : Fiber N K V E}
+    {ι : Iterator (Ctx K V) E} {κ : Ctx K V → Ctx K V} {v : K → Option N}
+    (hf : lookup s.reg n = some f) (hl : f.lc = .loading ι κ v) :
+    State.recover s n =
+      ⟨set s.reg n { f with table := fun _ => none }, (κ (State.fullCtx s)).1⟩ := by
+  simp [State.recover, hf, hl]
+
 /-- Write a table at `n`, leaving the ambient unchanged. -/
 def writeTable {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
     (s : State N K E V) (n : N) (δ : CoefCtx K V) : State N K E V :=
@@ -433,6 +443,19 @@ theorem rawSigma_writeEffect_of_confined {s : State N K E V} {n : N} {δ : Ctx K
       · exact hsupport k hk
     rw [hnew]
     exact hout k hk
+
+/-- Under confinement, `writeEffect` makes the full context exactly the
+effect's output `δ`. -/
+theorem State.fullCtx_writeEffect_of_confined {s : State N K E V} {n : N}
+    {δ : Ctx K V} (hnodup : NodupKeys s.reg) (hconf : ConfinedEffect s n δ) :
+    State.fullCtx (State.writeEffect s n δ) = δ := by
+  unfold State.fullCtx
+  have hconf' := hconf
+  rcases hconf' with ⟨f, hf, _⟩
+  simp [State.writeEffect, hf]
+  apply Prod.ext
+  · rfl
+  · simpa [State.writeEffect, hf] using rawSigma_writeEffect_of_confined hnodup hconf
 
 /-! ## Faithful type-level step records -/
 
