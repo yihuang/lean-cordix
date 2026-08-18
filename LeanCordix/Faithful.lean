@@ -1,6 +1,7 @@
 import LeanCordix.FullCtx
 import LeanCordix.Iterator
 import LeanCordix.Coeffect
+import LeanCordix.TraceModel
 
 /-!
 # Cordix — Faithful full-context model (parallel development)
@@ -204,6 +205,185 @@ def relied {N : Type} [DecidableEq N] {K : Type} {E : Type} {V : K → Type u}
   Faithful.relied s.reg n
 
 end State
+
+/-! ## Faithful type-level step records -/
+
+/-- The faithful analogue of `Full.Step`: a step record whose iterator runs
+on `State.fullCtx` (ambient + sigma) and whose accumulator is a
+`FullCtx → FullCtx` map. -/
+inductive Step (s : State N K E V) : Type (max 1 u) where
+  | oInsert (n : N) (c : Component K V E) (p : Option N)
+      (hn : lookup s.reg n = none)
+      (hp : ∀ n' ∈ p, ∃ f, lookup s.reg n' = some f)
+      (hdisj : ∀ n' f, lookup s.reg n' = some f →
+        (∀ k ∈ c.prov, ∀ k' ∈ f.comp.prov, k ≠ k')) :
+      Step s
+  | oRetire (n : N) (f : Fiber N K V E)
+      (hf : lookup s.reg n = some f) :
+      Step s
+  | oRemove (n : N) (f : Fiber N K V E) (o : Option E)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .inactive o)
+      (hchild : ∀ n' f', lookup s.reg n' = some f' → f'.parent ≠ some n) :
+      Step s
+  | lBegin (n : N) (f : Fiber N K V E) (v : K → Option N)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .inactive none)
+      (ht : targetOf s.reg n = some v) :
+      Step s
+  | lIter (n : N) (f : Fiber N K V E)
+      (ι : Iterator (Ctx K V) E) (κ : Ctx K V → Ctx K V)
+      (v : K → Option N) (ι' : Iterator (Ctx K V) E)
+      (δ : Ctx K V) (h : Ctx K V → Ctx K V)
+      (hreach : Iterator.Reachable f.comp.iter ι)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf s.reg n = some v)
+      (hstep : Iterator.step ι (State.fullCtx s) = .ok (δ, h, some ι')) :
+      Step s
+  | lFinish (n : N) (f : Fiber N K V E)
+      (ι : Iterator (Ctx K V) E) (κ : Ctx K V → Ctx K V)
+      (v : K → Option N) (δ : Ctx K V) (h : Ctx K V → Ctx K V)
+      (hreach : Iterator.Reachable f.comp.iter ι)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf s.reg n = some v)
+      (hstep : Iterator.step ι (State.fullCtx s) = .ok (δ, h, none)) :
+      Step s
+  | lRaise (n : N) (f : Fiber N K V E)
+      (ι : Iterator (Ctx K V) E) (κ : Ctx K V → Ctx K V)
+      (v : K → Option N) (e : E)
+      (hreach : Iterator.Reachable f.comp.iter ι)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .loading ι κ v)
+      (hstep : Iterator.step ι (State.fullCtx s) = .error e) :
+      Step s
+  | lDivertAbort (n : N) (f : Fiber N K V E)
+      (ι : Iterator (Ctx K V) E) (κ : Ctx K V → Ctx K V)
+      (v : K → Option N) (hreach : Iterator.Reachable f.comp.iter ι)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf s.reg n ≠ some v) :
+      Step s
+  | lDivertLand (n : N) (f : Fiber N K V E)
+      (ι : Iterator (Ctx K V) E) (κ : Ctx K V → Ctx K V)
+      (v : K → Option N) (δ : Ctx K V) (h : Ctx K V → Ctx K V)
+      (c : Option (Iterator (Ctx K V) E))
+      (hreach : Iterator.Reachable f.comp.iter ι)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .loading ι κ v)
+      (ht : targetOf s.reg n ≠ some v)
+      (hstep : Iterator.step ι (State.fullCtx s) = .ok (δ, h, c)) :
+      Step s
+  | lLeave (n : N) (f : Fiber N K V E)
+      (κ : Ctx K V → Ctx K V) (v : K → Option N)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .active κ v)
+      (ht : targetOf s.reg n ≠ some v) :
+      Step s
+  | lUnload (n : N) (f : Fiber N K V E)
+      (κ : Ctx K V → Ctx K V) (v : K → Option N) (o : Option E)
+      (hf : lookup s.reg n = some f) (hl : f.lc = .unloading κ v o)
+      (hg : ¬ relied s.reg n) :
+      Step s
+
+namespace Step
+
+variable {s : State N K E V}
+
+/-- The name the step acts on. -/
+def name : Step s → N
+  | oInsert n .. => n
+  | oRetire n .. => n
+  | oRemove n .. => n
+  | lBegin n .. => n
+  | lIter n .. => n
+  | lFinish n .. => n
+  | lRaise n .. => n
+  | lDivertAbort n .. => n
+  | lDivertLand n .. => n
+  | lLeave n .. => n
+  | lUnload n .. => n
+
+/-- The rule kind of the step. -/
+def kind : Step s → Full.StepKind
+  | oInsert .. => Full.StepKind.oInsert
+  | oRetire .. => Full.StepKind.oRetire
+  | oRemove .. => Full.StepKind.oRemove
+  | lBegin .. => Full.StepKind.lBegin
+  | lIter .. => Full.StepKind.lIter
+  | lFinish .. => Full.StepKind.lFinish
+  | lRaise .. => Full.StepKind.lRaise
+  | lDivertAbort .. => Full.StepKind.lDivertAbort
+  | lDivertLand .. => Full.StepKind.lDivertLand
+  | lLeave .. => Full.StepKind.lLeave
+  | lUnload .. => Full.StepKind.lUnload
+
+/-- The state map `Ψ`: writes the sigma component into the acting fiber's
+table, the ambient component into the ambient context, applies the
+accumulator at `L-Unload`, and is the identity elsewhere. -/
+def psi : Step s → State N K E V → State N K E V
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with table := δ.2 }, δ.1⟩
+      | none => x
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with table := δ.2 }, δ.1⟩
+      | none => x
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with table := δ.2 }, δ.1⟩
+      | none => x
+  | lUnload n f κ v o hf hl hg, x =>
+      match lookup x.reg n with
+      | some g => ⟨x.reg, (κ (State.fullCtx x)).1⟩
+      | none => x
+  | _, x => x
+
+/-- The edit `edit`: writes only control fields, exactly as in the current
+model but with full-context accumulators. -/
+def edit : Step s → State N K E V → State N K E V
+  | oInsert n c p hn hp hdisj, x =>
+      ⟨set x.reg n ⟨c, p, fun _ => none, false, .inactive none⟩, x.ambient⟩
+  | oRetire n f hf, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with retired := true }, x.ambient⟩
+      | none => x
+  | oRemove n f o hf hl hchild, x =>
+      ⟨del x.reg n, x.ambient⟩
+  | lBegin n f v hf hl ht, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .loading g.comp.iter id v }, x.ambient⟩
+      | none => x
+  | lIter n f ι κ v ι' δ h hreach hf hl ht hstep, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .loading ι' (κ ∘ h) v }, x.ambient⟩
+      | none => x
+  | lFinish n f ι κ v δ h hreach hf hl ht hstep, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .active (κ ∘ h) v }, x.ambient⟩
+      | none => x
+  | lRaise n f ι κ v e hreach hf hl hstep, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .unloading κ v (some e) }, x.ambient⟩
+      | none => x
+  | lDivertAbort n f ι κ v hreach hf hl ht, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .unloading κ v none }, x.ambient⟩
+      | none => x
+  | lDivertLand n f ι κ v δ h c hreach hf hl ht hstep, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .unloading (κ ∘ h) v none }, x.ambient⟩
+      | none => x
+  | lLeave n f κ v hf hl ht, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .unloading κ v none }, x.ambient⟩
+      | none => x
+  | lUnload n f κ v o hf hl hg, x =>
+      match lookup x.reg n with
+      | some g => ⟨set x.reg n { g with lc := .inactive o }, x.ambient⟩
+      | none => x
+
+/-- The state reached by the step. -/
+def next (st : Step s) : State N K E V := edit st (psi st s)
+
+/-- **Faithful Equation (52).** Every step factors as `s' = edit (Ψ s)`. -/
+theorem factorization (st : Step s) : next st = edit st (psi st s) := rfl
+
+end Step
 
 end Faithful
 
