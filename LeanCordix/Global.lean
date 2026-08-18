@@ -135,6 +135,20 @@ def State.applyAcc (s : State N K E V) (n : N) : State N K E V :=
       | .unloading κ _ _ => ⟨s.reg, κ s.ambient⟩
   | none => s
 
+/-- **Full state-level recovery** `κ_n(s)`.  Apply the fiber's accumulator
+to both its raw table and the ambient context.  This is the operation needed
+for the full recovery-exactness statement (Eq. 56) when the tracked fiber
+has performed table-writing steps. -/
+def State.recoverAcc (s : State N K E V) (n : N) : State N K E V :=
+  match lookup s.reg n with
+  | some f =>
+      match f.lc with
+      | .inactive _ => s
+      | .loading _ κ _ => ⟨set s.reg n { f with table := κ f.table }, κ s.ambient⟩
+      | .active κ _ => ⟨set s.reg n { f with table := κ f.table }, κ s.ambient⟩
+      | .unloading κ _ _ => ⟨set s.reg n { f with table := κ f.table }, κ s.ambient⟩
+  | none => s
+
 /-- Applying the identity accumulator of a freshly begun fiber is the
 identity on states. -/
 theorem State.applyAcc_of_loading_id {s : State N K E V} {n : N}
@@ -145,6 +159,51 @@ theorem State.applyAcc_of_loading_id {s : State N K E V} {n : N}
   | mk comp parent table retired lc =>
       have hl' : lc = .loading comp.iter id v := by simpa using hl
       simp [State.applyAcc, hf, hl']
+
+/-- `recoverAcc` at a present fiber is determined by that fiber's lifecycle. -/
+theorem State.recoverAcc_eq_of_lookup {s : State N K E V} {n : N} {f : Fiber N K V E}
+    (hf : lookup s.reg n = some f) :
+    State.recoverAcc s n =
+      match f.lc with
+      | .inactive _ => s
+      | .loading _ κ _ => ⟨set s.reg n { f with table := κ f.table }, κ s.ambient⟩
+      | .active κ _ => ⟨set s.reg n { f with table := κ f.table }, κ s.ambient⟩
+      | .unloading κ _ _ => ⟨set s.reg n { f with table := κ f.table }, κ s.ambient⟩ := by
+  simp [State.recoverAcc, hf]
+
+/-- `writeTable` at a present fiber replaces its table. -/
+theorem State.writeTable_eq_of_lookup {s : State N K E V} {m : N}
+    {g : Fiber N K V E} (hg : lookup s.reg m = some g) (δ : CoefCtx K V) :
+    State.writeTable s m δ = ⟨set s.reg m { g with table := δ }, s.ambient⟩ := by
+  simp [State.writeTable, hg]
+
+/-- Replacing the first occurrence of a name by the fiber already found
+there is the identity on registries. -/
+theorem set_eq_self_of_lookup_eq {r : Registry N K V E} {n : N}
+    {f : Fiber N K V E} (hf : lookup r n = some f) : set r n f = r := by
+  induction r with
+  | nil => cases hf
+  | cons p rest ih =>
+      by_cases h : p.1 = n
+      · have hp : p.2 = f := by
+          simpa [lookup, h] using hf
+        simp [set, h]
+        exact Prod.ext h.symm hp.symm
+      · simp [set, h]
+        exact ih (by simpa [lookup, h] using hf)
+
+/-- Full recovery by a freshly begun fiber is also the identity on states. -/
+theorem State.recoverAcc_of_loading_id {s : State N K E V} {n : N}
+    {f : Fiber N K V E} {v : K → Option N}
+    (hf : lookup s.reg n = some f) (hl : f.lc = .loading f.comp.iter id v) :
+    State.recoverAcc s n = s := by
+  cases f with
+  | mk comp parent table retired lc =>
+      have hl' : lc = .loading comp.iter id v := by simpa using hl
+      have hf' : lookup s.reg n =
+          some (Fiber.mk comp parent table retired (Lifecycle.loading comp.iter id v)) := by
+        simpa [hl'] using hf
+      simp [State.recoverAcc, hf, hl', set_eq_self_of_lookup_eq hf']
 
 /-! ## Control-only edits preserve `≈` -/
 

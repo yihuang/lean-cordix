@@ -78,10 +78,11 @@ combinatorial termination bound (the remaining part of Thm 66.2), confluence
 (Thm 73), and the remaining global composability theorems beyond the material
 now proved in `TraceModel` and `Global`.
 
-The `Independence` module now supplies Definition 60 and the local step
-commutation lemmas; completing Theorem 61 still needs a state-level
-accumulator/recovery operation that also restores a tracked fiber's table
-(the current `State.applyAcc` only touches the ambient context).
+The `Independence` module now supplies Definition 60, the local step
+commutation lemmas, and `Global.State.recoverAcc` — the full state-level
+accumulator that also restores a tracked fiber's table.  Completing
+Theorem 61 still requires the `≈`-commutation and trace-level induction
+lemmas for `State.recoverAcc`.
 
 ## Building
 
