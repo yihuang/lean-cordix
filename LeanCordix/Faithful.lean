@@ -46,8 +46,8 @@ structure Component (K : Type) (V : K → Type u) (E : Type) where
   prov : List K
   /-- The effect iterator executed on activation. -/
   iter : Iterator (Ctx K V) E
-  /-- The iterator is witnessed. -/
-  wit : Iterator.Witnessed iter
+  /-- The iterator is witnessed, including all reachable continuations. -/
+  wit : Iterator.WitnessedAll iter
 
 /-- **Faithful Definition 49.** Lifecycle states with full-context
 accumulators. -/
@@ -124,6 +124,22 @@ def del {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type} :
     Registry N K V E → N → Registry N K V E
   | [], _ => []
   | p :: rest, n => if p.1 = n then del rest n else p :: del rest n
+
+/-- Replacing the first occurrence of a name by the fiber already found
+there is the identity on registries. -/
+theorem set_eq_self_of_lookup_eq {N : Type} [DecidableEq N] {K : Type}
+    {V : K → Type u} {E : Type} {r : Registry N K V E} {n : N}
+    {f : Fiber N K V E} (hf : lookup r n = some f) : set r n f = r := by
+  induction r with
+  | nil => cases hf
+  | cons p rest ih =>
+      by_cases h : p.1 = n
+      · have hp : p.2 = f := by
+          simpa [lookup, h] using hf
+        simp [set, h]
+        exact Prod.ext h.symm hp.symm
+      · simp [set, h]
+        exact ih (by simpa [lookup, h] using hf)
 
 /-- The coeffect context of a state: the union of the tables of active
 fibers. -/
@@ -203,6 +219,43 @@ def quiet {N : Type} [DecidableEq N] {K : Type} [DecidableEq K] {E : Type}
 def relied {N : Type} [DecidableEq N] {K : Type} {E : Type} {V : K → Type u}
     (s : State N K E V) (n : N) : Prop :=
   Faithful.relied s.reg n
+
+/-- **Faithful full recovery** `κ_n(s)`.  Apply the fiber's accumulator to
+the full context `(ambient, sigma)`; the recovered ambient is the first
+component, and the fiber's own table is emptied (its contribution has been
+withdrawn from the context).  This is the state-level reading of the paper's
+`κ_n` that makes Eq. (56) meaningful when the tracked fiber has written its
+own table. -/
+def recover (s : State N K E V) (n : N) : State N K E V :=
+  match lookup s.reg n with
+  | some f =>
+      match f.lc with
+      | .inactive _ => s
+      | .loading _ κ _ =>
+          ⟨set s.reg n { f with table := fun _ => none }, (κ (State.fullCtx s)).1⟩
+      | .active κ _ =>
+          ⟨set s.reg n { f with table := fun _ => none }, (κ (State.fullCtx s)).1⟩
+      | .unloading κ _ _ =>
+          ⟨set s.reg n { f with table := fun _ => none }, (κ (State.fullCtx s)).1⟩
+  | none => s
+
+/-- If a freshly begun fiber has an empty table and the identity accumulator,
+full recovery is the identity. -/
+theorem recover_of_loading_id {s : State N K E V} {n : N}
+    {f : Fiber N K V E} {v : K → Option N}
+    (hf : lookup s.reg n = some f) (htable : f.table = fun _ => none)
+    (hl : f.lc = .loading f.comp.iter id v) :
+    State.recover s n = s := by
+  cases f with
+  | mk comp parent table retired lc =>
+      have htable' : table = fun _ => none := by simpa using htable
+      have hl' : lc = .loading comp.iter id v := by simpa using hl
+      have hf' : lookup s.reg n =
+          some (Fiber.mk comp parent (fun _ => none) retired
+            (Lifecycle.loading comp.iter id v)) := by
+        simpa [htable', hl'] using hf
+      simp [State.recover, hf, htable', hl', State.fullCtx,
+        set_eq_self_of_lookup_eq hf']
 
 end State
 
