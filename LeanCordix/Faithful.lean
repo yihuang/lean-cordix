@@ -159,6 +159,14 @@ def rawSigma {N : Type} {K : Type} {V : K → Type u} {E : Type}
     (r : Registry N K V E) : CoefCtx K V :=
   fun k => r.foldr (init := none) fun p acc => p.2.table k <|> acc
 
+/-- **Confinement split.**  Given the full new sigma produced by an effect
+confined to a fiber with provision `prov`, the fiber's own table is the
+restriction of that sigma to `prov`; outside `prov` the sigma is owned by
+other fibers. -/
+def splitTable {K : Type} [DecidableEq K] {V : K → Type u}
+    (prov : List K) (σ : CoefCtx K V) : CoefCtx K V :=
+  fun k => if k ∈ prov then σ k else none
+
 /-- The provider of a key: the active fiber whose table defines it. -/
 def providerOf {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
     (r : Registry N K V E) (k : K) : Option N :=
@@ -293,13 +301,25 @@ def writeTable {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Typ
 
 /-- Write an effect at `n`: the sigma component becomes the fiber's table and
 the ambient component becomes the new ambient. -/
-def writeEffect {N : Type} [DecidableEq N] {K : Type} {V : K → Type u} {E : Type}
-    (s : State N K E V) (n : N) (δ : Ctx K V) : State N K E V :=
+def writeEffect {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
+    {V : K → Type u} {E : Type} (s : State N K E V) (n : N) (δ : Ctx K V) : State N K E V :=
   match lookup s.reg n with
-  | some g => ⟨set s.reg n { g with table := δ.2 }, δ.1⟩
+  | some g => ⟨set s.reg n { g with table := splitTable g.comp.prov δ.2 }, δ.1⟩
   | none => s
 
 end State
+
+/-- A `FullCtx` delta is **confined to `n`** when, outside `n`'s provision,
+the new sigma agrees with the old raw sigma (other fibers' tables are
+unchanged), and the ambient component is arbitrary (the effect may write the
+ambient). -/
+def ConfinedEffect {N : Type} [DecidableEq N] {K : Type} [DecidableEq K]
+    {V : K → Type u} {E : Type} (s : State N K E V) (n : N)
+    (δ : Ctx K V) : Prop :=
+  ∃ f, lookup s.reg n = some f ∧
+    (∀ k, k ∉ f.comp.prov → rawSigma s.reg k = δ.2 k) ∧
+    (∀ m g, lookup s.reg m = some g → m ≠ n →
+      ∀ k ∈ f.comp.prov, g.table k = none)
 
 /-! ## Faithful type-level step records -/
 
