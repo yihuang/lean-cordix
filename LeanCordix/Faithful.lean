@@ -385,6 +385,69 @@ theorem factorization (st : Step s) : next st = edit st (psi st s) := rfl
 
 end Step
 
+/-! ## Faithful `≈` and type-level traces -/
+
+namespace State
+
+/-- The raw table read from a state at a name; an absent name reads as the
+empty table. -/
+def tableAt (s : State N K E V) (n : N) : CoefCtx K V :=
+  match lookup s.reg n with
+  | some f => f.table
+  | none => fun _ => none
+
+/-- **Faithful `≈`.** Two states agree on the ambient context and on every
+name's raw table, while control fields may differ. -/
+structure Approx (s s' : State N K E V) : Prop where
+  ambient : s.ambient = s'.ambient
+  tables : ∀ n, State.tableAt s n = State.tableAt s' n
+
+namespace Approx
+
+theorem refl (s : State N K E V) : State.Approx s s :=
+  ⟨rfl, fun _ => rfl⟩
+
+theorem symm {s s' : State N K E V} (h : State.Approx s s') : State.Approx s' s :=
+  ⟨h.ambient.symm, fun n => (h.tables n).symm⟩
+
+theorem trans {s s' s'' : State N K E V} (h : State.Approx s s')
+    (h' : State.Approx s' s'') : State.Approx s s'' :=
+  ⟨h.ambient.trans h'.ambient, fun n => (h.tables n).trans (h'.tables n)⟩
+
+end Approx
+
+end State
+
+/-- A finite trace of faithful `Step` records. -/
+inductive StepTrace : State N K E V → State N K E V → Type (max 1 u) where
+  | nil (s : State N K E V) : StepTrace s s
+  | cons {s₁ s₂ s₃ : State N K E V} (st : Step s₁) (hnext : Step.next st = s₂)
+      (ht : StepTrace s₂ s₃) : StepTrace s₁ s₃
+
+namespace StepTrace
+
+/-- A predicate holds of every step in a type-level trace. -/
+def AllSteps {s t : State N K E V}
+    (P : ∀ {s : State N K E V}, Step s → Prop) :
+    StepTrace s t → Prop
+  | .nil _ => True
+  | .cons st _ ht => P st ∧ AllSteps P ht
+
+/-- Fold the `Ψ` maps of a trace over a state. -/
+def foldPsi {s t : State N K E V} :
+    StepTrace s t → State N K E V → State N K E V
+  | .nil _, x => x
+  | .cons st _ ht, x => foldPsi ht (Step.psi st x)
+
+/-- Fold the `Ψ` maps of a trace, skipping steps acting on `n`. -/
+def foldPsiExcept {s t : State N K E V} (ht : StepTrace s t) (n : N)
+    (x : State N K E V) : State N K E V :=
+  match ht with
+  | .nil _ => x
+  | .cons st _ ht => foldPsiExcept ht n (if st.name = n then x else Step.psi st x)
+
+end StepTrace
+
 end Faithful
 
 end Cordix
