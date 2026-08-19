@@ -46,7 +46,7 @@ The model is split into flat modules under `LeanCordix/`:
 | `LeanCordix/Equivariance.lean` | Lemma 56 name renaming/equivariance: `NameEquiv`, `Rename`, `step_rename`, `step_rename_bwd`, `step_rename_next` |
 | `LeanCordix/Coherence.lean` | Theorem 64 resolution coherence |
 | `LeanCordix/TableConfined.lean` | Table-confinement machinery, `Registry.TableConfined`, `TableConfinedWellFormed`, table-aware trace preservation |
-| `LeanCordix/Confluence.lean` | Theorem 73 scaffolding: support/totality definitions, Lemma 68/70/71 statements, and a proved O-Remove/O-Remove transposition special case |
+| `LeanCordix/Confluence.lean` | Theorem 73 scaffolding: support/totality definitions, Lemma 68/70/71 statements, and proved control-step transposition special cases |
 
 Shared infrastructure:
 
