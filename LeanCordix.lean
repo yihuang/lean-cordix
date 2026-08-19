@@ -23,3 +23,5 @@ import LeanCordix.Invariance
 import LeanCordix.Equivariance
 import LeanCordix.Coherence
 import LeanCordix.TableConfined
+
+import LeanCordix.Confluence
