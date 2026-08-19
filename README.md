@@ -9,7 +9,9 @@ A formalization in Lean 4 of the formal core of:
 
 The active library is under `LeanCordix/`. The canonical full-context model
 is split into flat modules `Basic`, `Step`, `Approx`, `Recovery`, and
-`Trace`.
+`Trace`, with recovered metatheory in `WellFormed`, `Progress`,
+`Termination`, `Vestigial`, `Invariance`, `Equivariance`, `Coherence`, and
+`TableConfined`.
 
 See [docs/design.md](docs/design.md) for the detailed design, proof
 structure, theorem dependencies, and correspondence to the paper.

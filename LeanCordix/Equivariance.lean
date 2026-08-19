@@ -1,0 +1,1086 @@
+import LeanCordix.Step
+
+/-
+# Cordix — Lemma 56 support: renaming names injectively
+
+This module contains the transport machinery for Lemma 56 (equivariance
+under a bijection of names).  It defines the forward renaming of views,
+lifecycle states, fibers, registries, and states along a function
+`φ : N → M`, and proves that `lookup`, `sigmaOf`, `providerOf`, and
+`targetOf` commute with the renaming when `φ` is injective.
+-/
+
+set_option linter.unusedVariables false
+set_option linter.unusedSectionVars false
+set_option linter.unusedSimpArgs false
+
+namespace Cordix
+
+universe u
+
+variable {N M K E : Type} [DecidableEq N] [DecidableEq M] [DecidableEq K]
+  {V : K → Type u}
+
+/-- A bijection of fiber names, given by two inverse functions. -/
+structure NameEquiv (N M : Type) where
+  fwd : N → M
+  bwd : M → N
+  fwd_bwd : ∀ n, bwd (fwd n) = n
+  bwd_fwd : ∀ m, fwd (bwd m) = m
+
+namespace NameEquiv
+
+theorem fwd_injective (e : NameEquiv N M) : Function.Injective e.fwd := by
+  intro a b h
+  have hb := congrArg e.bwd h
+  simpa [e.fwd_bwd] using hb
+
+theorem bwd_injective (e : NameEquiv N M) : Function.Injective e.bwd := by
+  intro a b h
+  have hf := congrArg e.fwd h
+  simpa [e.bwd_fwd] using hf
+
+/-- The inverse bijection. -/
+def symm (e : NameEquiv N M) : NameEquiv M N where
+  fwd := e.bwd
+  bwd := e.fwd
+  fwd_bwd := e.bwd_fwd
+  bwd_fwd := e.fwd_bwd
+
+end NameEquiv
+
+namespace Rename
+
+/-- Rename an optional fiber name. -/
+def option (φ : N → M) : Option N → Option M
+  | none => none
+  | some n => some (φ n)
+
+/-- Rename a committed view. -/
+def view (φ : N → M) (v : K → Option N) : K → Option M :=
+  fun k => option φ (v k)
+
+/-- Rename the name fields of a lifecycle state. -/
+def lifecycle (φ : N → M) : Lifecycle N K V E → Lifecycle M K V E
+  | .inactive o => .inactive o
+  | .loading ι κ v => .loading ι κ (view φ v)
+  | .active κ v => .active κ (view φ v)
+  | .unloading κ v o => .unloading κ (view φ v) o
+
+/-- Rename the name fields of a fiber. -/
+def fiber (φ : N → M) (f : Fiber N K V E) : Fiber M K V E where
+  comp := f.comp
+  parent := option φ f.parent
+  table := f.table
+  retired := f.retired
+  lc := lifecycle φ f.lc
+
+/-- Rename the keys and name fields of a registry. -/
+def registry (φ : N → M) : Registry N K V E → Registry M K V E :=
+  List.map (fun p : N × Fiber N K V E => (φ p.1, fiber φ p.2))
+
+/-- Rename the registry of a state; the ambient context is unchanged. -/
+def state (φ : N → M) (s : State N K E V) : State M K E V where
+  reg := registry φ s.reg
+  ambient := s.ambient
+
+theorem option_injective {φ : N → M} (hinj : Function.Injective φ) :
+    Function.Injective (option φ) := by
+  intro a b h
+  cases a <;> cases b <;> simp [option] at h ⊢
+  exact hinj h
+
+/-- `set` commutes with renaming. -/
+theorem set_rename (φ : N → M) (hinj : Function.Injective φ)
+    (r : Registry N K V E) (n : N) (f : Fiber N K V E) :
+    registry φ (set r n f) = set (registry φ r) (φ n) (fiber φ f) := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · simp [registry, set, hp]
+      · have hφ : φ p.1 ≠ φ n := by
+          intro hEq; exact hp (hinj hEq)
+        simp [registry, set, hp, hφ]
+        simpa [registry] using ih
+
+/-- `del` commutes with renaming. -/
+theorem del_rename (φ : N → M) (hinj : Function.Injective φ)
+    (r : Registry N K V E) (n : N) :
+    registry φ (del r n) = del (registry φ r) (φ n) := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · simp [registry, del, hp]
+        simpa [registry] using ih
+      · have hφ : φ p.1 ≠ φ n := by
+          intro hEq; exact hp (hinj hEq)
+        simp [registry, del, hp, hφ]
+        simpa [registry] using ih
+
+/-- Renaming distributes over a fiber table/lifecycle update. -/
+theorem fiber_update_rename (φ : N → M) (f : Fiber N K V E)
+    (table : CoefCtx K V) (lc : Lifecycle N K V E) :
+    fiber φ { f with table := table, lc := lc } =
+      { fiber φ f with table := table, lc := lifecycle φ lc } := by
+  cases f
+  rfl
+
+/-- Renaming distributes over a fiber lifecycle update. -/
+theorem fiber_lc_rename (φ : N → M) (f : Fiber N K V E)
+    (lc : Lifecycle N K V E) :
+    fiber φ { f with lc := lc } = { fiber φ f with lc := lifecycle φ lc } := by
+  cases f
+  rfl
+
+/-- Renaming distributes over the retirement flag update. -/
+theorem fiber_retired_rename (φ : N → M) (f : Fiber N K V E) :
+    fiber φ { f with retired := true } = { fiber φ f with retired := true } := by
+  cases f
+  rfl
+
+/-- Renaming a state commutes with a pointwise fiber table/lifecycle update,
+with an arbitrary ambient context. -/
+theorem state_set_rename (e : NameEquiv N M) (s : State N K E V)
+    (a : N) (f : Fiber N K V E) (t : CoefCtx K V) (lc : Lifecycle N K V E)
+    (amb : CoefCtx K V) :
+    state e.fwd ⟨set s.reg a { f with table := t, lc := lc }, amb⟩ =
+      ⟨set (state e.fwd s).reg (e.fwd a)
+        { fiber e.fwd f with table := t, lc := lifecycle e.fwd lc },
+       amb⟩ := by
+  simp [state, set_rename e.fwd (NameEquiv.fwd_injective e) s.reg a
+    { f with table := t, lc := lc }, fiber_update_rename]
+
+/-- `lookup` commutes with renaming. -/
+theorem lookup_rename (φ : N → M) (r : Registry N K V E) (n : N)
+    (hinj : Function.Injective φ) :
+    lookup (registry φ r) (φ n) = Option.map (fiber φ) (lookup r n) := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      by_cases hp : p.1 = n
+      · simp [registry, lookup, hp]
+      · have hφ : φ p.1 ≠ φ n := by
+          intro hEq; exact hp (hinj hEq)
+        simpa [registry, lookup, hp, hφ] using ih
+
+/-- Renaming commutes with the registry fold that computes `sigmaOf`. -/
+theorem fold_rename_sigma (φ : N → M) (r : Registry N K V E) (k : K) :
+    List.foldr (fun p acc => match p.2.lc with | .active _ _ => (p.2.table k).or acc | _ => acc) none
+        (List.map (fun p : N × Fiber N K V E => (φ p.1, fiber φ p.2)) r)
+    = List.foldr (fun p acc => match p.2.lc with | .active _ _ => (p.2.table k).or acc | _ => acc) none r := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      cases hlc : p.2.lc with
+      | inactive o => simp [fiber, lifecycle, hlc]; exact ih
+      | loading ι κ v => simp [fiber, lifecycle, hlc]; exact ih
+      | active κ v => simp [fiber, lifecycle, hlc]; exact congrArg (fun x => (p.2.table k).or x) ih
+      | unloading κ v o => simp [fiber, lifecycle, hlc]; exact ih
+
+/-- `sigmaOf` is invariant under renaming: it reads only tables and
+installedness, neither of which mentions names. -/
+theorem sigmaOf_rename (φ : N → M) (r : Registry N K V E) :
+    sigmaOf (registry φ r) = sigmaOf r := by
+  funext k
+  induction r with
+  | nil => simp [sigmaOf, registry]
+  | cons p rest ih =>
+      cases hlc : p.2.lc with
+      | inactive o =>
+          simpa [sigmaOf, registry, fiber, lifecycle, hlc] using ih
+      | loading ι κ v =>
+          simpa [sigmaOf, registry, fiber, lifecycle, hlc] using ih
+      | active κ v =>
+          simp [sigmaOf, registry, fiber, lifecycle, hlc]
+          apply congrArg (fun x => (p.2.table k).or x)
+          simpa [sigmaOf, registry, fiber, lifecycle] using ih
+      | unloading κ v o =>
+          simpa [sigmaOf, registry, fiber, lifecycle, hlc] using ih
+
+/-- `rawSigma` is invariant under renaming: it reads only tables, none of
+which mention names. -/
+theorem rawSigma_rename (φ : N → M) (r : Registry N K V E) :
+    rawSigma (registry φ r) = rawSigma r := by
+  funext k
+  induction r with
+  | nil => simp [rawSigma, registry]
+  | cons p rest ih =>
+      simp [rawSigma, registry, fiber]
+      apply congrArg (fun x => (p.2.table k).or x)
+      simpa [rawSigma, registry, fiber] using ih
+
+/-- The faithful full context is invariant under renaming of names. -/
+theorem fullCtx_rename (φ : N → M) (s : State N K E V) :
+    State.fullCtx (state φ s) = State.fullCtx s := by
+  simp [state, State.fullCtx, rawSigma_rename]
+
+/-- Renaming commutes with the registry fold that computes `providerOf`. -/
+theorem fold_rename_provider (φ : N → M) (r : Registry N K V E) (k : K) :
+    List.foldr (fun p acc => match p.2.lc with | .active _ _ => if (p.2.table k).isSome then some p.1 else acc | _ => acc) none
+        (List.map (fun p : N × Fiber N K V E => (φ p.1, fiber φ p.2)) r)
+    = option φ (List.foldr (fun p acc => match p.2.lc with | .active _ _ => if (p.2.table k).isSome then some p.1 else acc | _ => acc) none r) := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      cases hlc : p.2.lc with
+      | inactive o => simp [fiber, lifecycle, hlc]; exact ih
+      | loading ι κ v => simp [fiber, lifecycle, hlc]; exact ih
+      | active κ v =>
+          simp [fiber, lifecycle, hlc]
+          by_cases ht : (p.2.table k).isSome
+          · simp [ht, option]
+          · simp [ht, option]
+            exact ih
+      | unloading κ v o => simp [fiber, lifecycle, hlc]; exact ih
+
+/-- `providerOf` maps by the renaming on names. -/
+theorem providerOf_rename (φ : N → M) (r : Registry N K V E) (k : K) :
+    providerOf (registry φ r) k = option φ (providerOf r k) := by
+  induction r with
+  | nil => simp [providerOf, registry, option]
+  | cons p rest ih =>
+      cases hlc : p.2.lc with
+      | inactive o =>
+          simpa [providerOf, registry, fiber, lifecycle, hlc] using ih
+      | loading ι κ v =>
+          simpa [providerOf, registry, fiber, lifecycle, hlc] using ih
+      | active κ v =>
+          simp [providerOf, registry, fiber, lifecycle, hlc]
+          by_cases ht : (p.2.table k).isSome
+          · simp [ht, option]
+          · simp [ht, option]
+            simpa [providerOf, registry, fiber, lifecycle, option] using ih
+      | unloading κ v o =>
+          simpa [providerOf, registry, fiber, lifecycle, hlc] using ih
+
+/-- `targetOf` maps by the renaming on views. -/
+theorem targetOf_rename (φ : N → M) (r : Registry N K V E) (n : N)
+    (hinj : Function.Injective φ) :
+    targetOf (registry φ r) (φ n) = Option.map (view φ) (targetOf r n) := by
+  unfold targetOf
+  rw [lookup_rename φ r n hinj]
+  cases h : lookup r n with
+  | none => rfl
+  | some f =>
+      simp only [Option.map]
+      by_cases hc : f.retired = true ∨ ¬satisfies (sigmaOf r) f.comp.spec
+      · have hc' : (fiber φ f).retired = true ∨
+            ¬satisfies (sigmaOf (registry φ r)) (fiber φ f).comp.spec := by
+          rcases hc with hret | hnotsat
+          · left; simpa [fiber] using hret
+          · right; intro hs
+            have hs_r : satisfies (sigmaOf r) f.comp.spec := by
+              simpa [fiber, sigmaOf_rename] using hs
+            exact hnotsat hs_r
+        simp only [if_pos hc, if_pos hc']
+      · have hnotret : ¬ f.retired = true := fun hr => hc (Or.inl hr)
+        have hsat : satisfies (sigmaOf r) f.comp.spec := by
+          exact Classical.byContradiction (fun hs => hc (Or.inr hs))
+        have hc' : ¬ ((fiber φ f).retired = true ∨
+              ¬satisfies (sigmaOf (registry φ r)) (fiber φ f).comp.spec) := by
+          intro hbad
+          rcases hbad with hret | hnotsat
+          · exact hnotret (by simpa [fiber] using hret)
+          · exact hnotsat (by simpa [fiber, sigmaOf_rename] using hsat)
+        rw [if_neg hc, if_neg hc']
+        congr 1
+        funext k
+        by_cases hk : k ∈ f.comp.spec <;> simp [view, fiber, option, hk, providerOf_rename]
+
+/-- Renaming a view forward and then backward is the identity. -/
+theorem view_comp (e : NameEquiv N M) (v : K → Option N) :
+    view e.bwd (view e.fwd v) = v := by
+  funext k
+  simp [view, option]
+  cases h : v k <;> simp [h, e.fwd_bwd]
+
+/-- Renaming a lifecycle forward and then backward is the identity. -/
+theorem lifecycle_comp (e : NameEquiv N M) (lc : Lifecycle N K V E) :
+    lifecycle e.bwd (lifecycle e.fwd lc) = lc := by
+  cases lc <;> simp [lifecycle, view_comp]
+
+/-- Renaming a fiber forward and then backward is the identity. -/
+theorem fiber_comp (e : NameEquiv N M) (f : Fiber N K V E) :
+    fiber e.bwd (fiber e.fwd f) = f := by
+  cases f with
+  | mk comp parent table retired lc =>
+      cases parent <;> simp [fiber, lifecycle_comp, option, e.fwd_bwd]
+
+/-- Renaming a registry forward and then backward is the identity. -/
+theorem registry_comp (e : NameEquiv N M) (r : Registry N K V E) :
+    registry e.bwd (registry e.fwd r) = r := by
+  induction r with
+  | nil => rfl
+  | cons p rest ih =>
+      cases p with
+      | mk a f =>
+          simp [registry, fiber_comp, e.fwd_bwd]
+          rw [← List.map_map]
+          exact ih
+
+/-- Renaming a state forward and then backward is the identity. -/
+theorem state_comp (e : NameEquiv N M) (s : State N K E V) :
+    state e.bwd (state e.fwd s) = s := by
+  cases s
+  simp [state, registry_comp]
+
+/-- Installedness is invariant under renaming. -/
+theorem lifecycle_installed_iff (φ : N → M) (lc : Lifecycle N K V E) :
+    (lifecycle φ lc).installed ↔ lc.installed := by
+  cases lc <;> simp [lifecycle, Lifecycle.installed]
+
+/-- The committed view of a renamed lifecycle is the renamed view. -/
+theorem viewOf_lifecycle_rename (φ : N → M) (lc : Lifecycle N K V E) (k : K) :
+    (lifecycle φ lc).viewOf k = option φ (lc.viewOf k) := by
+  cases lc <;> simp [lifecycle, Lifecycle.viewOf, view, option]
+
+/-- The withdrawal guard is equivariant under a bijection of names. -/
+theorem relied_rename_iff (e : NameEquiv N M) (r : Registry N K V E) (n : N) :
+    relied (registry e.fwd r) (e.fwd n) ↔ relied r n := by
+  constructor
+  · rintro ⟨n', k, f', hlook, hne, hinst, hv⟩
+    have hlookR : Option.map (fiber e.fwd) (lookup r (e.bwd n')) = some f' := by
+      have hlr := lookup_rename e.fwd r (e.bwd n') (NameEquiv.fwd_injective e)
+      have hlr' : lookup (registry e.fwd r) n' = Option.map (fiber e.fwd) (lookup r (e.bwd n')) := by
+        simpa [e.bwd_fwd n'] using hlr
+      rw [← hlook]
+      exact hlr'.symm
+    cases hlr : lookup r (e.bwd n') with
+    | none => simp [hlr] at hlookR
+    | some f =>
+        have hf : fiber e.fwd f = f' := by
+          simpa [hlr] using hlookR
+        have hn : e.bwd n' ≠ n := by
+          intro hEq
+          have : e.fwd (e.bwd n') = e.fwd n := by rw [hEq]
+          rw [e.bwd_fwd n'] at this
+          exact hne this
+        refine ⟨e.bwd n', k, f, hlr, hn, ?_, ?_⟩
+        · rw [← hf] at hinst
+          simpa [fiber] using (lifecycle_installed_iff e.fwd f.lc).mp hinst
+        · rw [← hf] at hv
+          have hv0 : (lifecycle e.fwd f.lc).viewOf k = some (e.fwd n) := by
+            simpa [fiber] using hv
+          rw [viewOf_lifecycle_rename] at hv0
+          exact option_injective (NameEquiv.fwd_injective e) hv0
+  · rintro ⟨n', k, f, hlook, hne, hinst, hv⟩
+    have hlookR : lookup (registry e.fwd r) (e.fwd n') = some (fiber e.fwd f) := by
+      rw [lookup_rename e.fwd r n' (NameEquiv.fwd_injective e), hlook]
+      rfl
+    refine ⟨e.fwd n', k, fiber e.fwd f, hlookR, ?_, ?_, ?_⟩
+    · intro hEq
+      exact hne (NameEquiv.fwd_injective e hEq)
+    · exact (lifecycle_installed_iff e.fwd f.lc).mpr hinst
+    · change (lifecycle e.fwd f.lc).viewOf k = some (e.fwd n)
+      rw [viewOf_lifecycle_rename]
+      simp [hv, option]
+
+end Rename
+
+
+/-- Given a renamed lookup result, recover the original fiber and lookup. -/
+theorem lookup_rename_state_some {s : State N K E V} (e : NameEquiv N M)
+    {n' : M} {g : Fiber M K V E}
+    (h : lookup (Rename.state e.fwd s).reg n' = some g) :
+    ∃ f : Fiber N K V E,
+      lookup s.reg (e.bwd n') = some f ∧ Rename.fiber e.fwd f = g := by
+  have hlr := Rename.lookup_rename e.fwd s.reg (e.bwd n') (NameEquiv.fwd_injective e)
+  have hlr' : lookup (Rename.state e.fwd s).reg n' =
+      Option.map (Rename.fiber e.fwd) (lookup s.reg (e.bwd n')) := by
+    simpa [Rename.state, e.bwd_fwd n'] using hlr
+  rw [hlr'] at h
+  cases hlook : lookup s.reg (e.bwd n') with
+  | none => simp [hlook] at h
+  | some f =>
+      have hf : Rename.fiber e.fwd f = g :=
+        Option.some.inj (by simpa [hlook] using h)
+      exact ⟨f, rfl, hf⟩
+
+/-- **Lemma 56, forward half.**  A bijection of names transports every
+`Step` record: the transported record acts on the renamed fiber, has the
+same rule kind, and lives at the renamed state. -/
+theorem step_rename {s : State N K E V} (e : NameEquiv N M) (st : Step s) :
+    ∃ st' : Step (Rename.state e.fwd s),
+      st'.name = e.fwd st.name ∧ st'.kind = st.kind := by
+  cases st with
+  | oInsert a c p hn hp hdisj =>
+      have hlookD : lookup (Rename.state e.fwd s).reg (e.fwd a) = none := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hn]
+        rfl
+      have hpD : ∀ n' ∈ Rename.option e.fwd p,
+          ∃ f, lookup (Rename.state e.fwd s).reg n' = some f := by
+        intro n' hn'
+        cases p with
+        | none => simp [Rename.option] at hn'
+        | some b =>
+            simp [Rename.option] at hn'
+            rcases hp b (by simp) with ⟨f, hf⟩
+            refine ⟨Rename.fiber e.fwd f, ?_⟩
+            simp [Rename.state]
+            rw [← hn']
+            rw [Rename.lookup_rename e.fwd s.reg b (NameEquiv.fwd_injective e)]
+            rw [hf]
+            rfl
+      have hdisjD : ∀ n' f, lookup (Rename.state e.fwd s).reg n' = some f →
+          (∀ k ∈ c.prov, ∀ k' ∈ f.comp.prov, k ≠ k') := by
+        intro n' g hlook k hk k' hk'
+        rcases lookup_rename_state_some e hlook with ⟨f0, hf0, hgf⟩
+        rw [← hgf] at hk'
+        exact hdisj (e.bwd n') f0 hf0 k hk k' hk'
+      exact ⟨Step.oInsert (s := Rename.state e.fwd s) (e.fwd a) c
+        (Rename.option e.fwd p) hlookD hpD hdisjD, rfl, rfl⟩
+  | oRetire a f hf =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      exact ⟨Step.oRetire (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) hfD, rfl, rfl⟩
+  | oRemove a f o hf hl hchild =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have hchildD : ∀ n' f', lookup (Rename.state e.fwd s).reg n' = some f' →
+          f'.parent ≠ some (e.fwd a) := by
+        intro n' g hlook
+        rcases lookup_rename_state_some e hlook with ⟨f0, hf0, hgf⟩
+        rw [← hgf]
+        intro hparent
+        have hparent0 : f0.parent = some a := by
+          apply Rename.option_injective (NameEquiv.fwd_injective e)
+          simpa [Rename.fiber, Rename.option] using hparent
+        exact hchild (e.bwd n') f0 hf0 hparent0
+      exact ⟨Step.oRemove (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) o hfD (by simp [Rename.fiber]; rw [hl]; rfl)
+        hchildD, rfl, rfl⟩
+  | lBegin a f v hf hl ht htable =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.view e.fwd v) := by
+        simp [Rename.state]
+        rw [Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [ht]
+        rfl
+      have htableD : (Rename.fiber e.fwd f).table = fun _ => none := by
+        simpa [Rename.fiber] using htable
+      exact ⟨Step.lBegin (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) (Rename.view e.fwd v) hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD htableD, rfl, rfl⟩
+  | lIter a f ι κ v ι' δ hinv hreach hf hl ht hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.view e.fwd v) := by
+        simp [Rename.state]
+        rw [Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [ht]
+        rfl
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.ok (δ, hinv, some ι') := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      exact ⟨Step.lIter (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) ι' δ hinv hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD hstepD, rfl, rfl⟩
+  | lFinish a f ι κ v δ hinv hreach hf hl ht hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.view e.fwd v) := by
+        simp [Rename.state]
+        rw [Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [ht]
+        rfl
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.ok (δ, hinv, none) := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      exact ⟨Step.lFinish (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) δ hinv hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD hstepD, rfl, rfl⟩
+  | lRaise a f ι κ v e0 hreach hf hl hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.error e0 := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      exact ⟨Step.lRaise (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) e0 hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) hstepD, rfl, rfl⟩
+  | lDivertAbort a f ι κ v hreach hf hl ht =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) ≠
+          some (Rename.view e.fwd v) := by
+        intro hbad
+        have ht0 : targetOf s.reg a = some v := by
+          have htp := Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)
+          have hbad0 : Option.map (Rename.view e.fwd) (targetOf s.reg a) =
+              some (Rename.view e.fwd v) := by
+            simpa [Rename.state, htp] using hbad
+          have view_inj : Function.Injective
+              (Rename.view (N:=N) (M:=M) (K:=K) e.fwd) := by
+            intro u w h
+            apply funext
+            intro k
+            exact Rename.option_injective (NameEquiv.fwd_injective e) (congrFun h k)
+          cases htarget : targetOf s.reg a with
+          | none => simp [htarget] at hbad0
+          | some v0 =>
+              have hv0 : v0 = v := view_inj
+                (Option.some.inj (by simpa [htarget] using hbad0))
+              rw [hv0]
+        exact ht ht0
+      exact ⟨Step.lDivertAbort (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD, rfl, rfl⟩
+  | lDivertLand a f ι κ v δ hinv c hreach hf hl ht hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) ≠
+          some (Rename.view e.fwd v) := by
+        intro hbad
+        have ht0 : targetOf s.reg a = some v := by
+          have htp := Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)
+          have hbad0 : Option.map (Rename.view e.fwd) (targetOf s.reg a) =
+              some (Rename.view e.fwd v) := by
+            simpa [Rename.state, htp] using hbad
+          have view_inj : Function.Injective
+              (Rename.view (N:=N) (M:=M) (K:=K) e.fwd) := by
+            intro u w h
+            apply funext
+            intro k
+            exact Rename.option_injective (NameEquiv.fwd_injective e) (congrFun h k)
+          cases htarget : targetOf s.reg a with
+          | none => simp [htarget] at hbad0
+          | some v0 =>
+              have hv0 : v0 = v := view_inj
+                (Option.some.inj (by simpa [htarget] using hbad0))
+              rw [hv0]
+        exact ht ht0
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.ok (δ, hinv, c) := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      exact ⟨Step.lDivertLand (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) δ hinv c hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD hstepD, rfl, rfl⟩
+  | lLeave a f κ v hf hl ht =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) ≠
+          some (Rename.view e.fwd v) := by
+        intro hbad
+        have ht0 : targetOf s.reg a = some v := by
+          have htp := Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)
+          have hbad0 : Option.map (Rename.view e.fwd) (targetOf s.reg a) =
+              some (Rename.view e.fwd v) := by
+            simpa [Rename.state, htp] using hbad
+          have view_inj : Function.Injective
+              (Rename.view (N:=N) (M:=M) (K:=K) e.fwd) := by
+            intro u w h
+            apply funext
+            intro k
+            exact Rename.option_injective (NameEquiv.fwd_injective e) (congrFun h k)
+          cases htarget : targetOf s.reg a with
+          | none => simp [htarget] at hbad0
+          | some v0 =>
+              have hv0 : v0 = v := view_inj
+                (Option.some.inj (by simpa [htarget] using hbad0))
+              rw [hv0]
+        exact ht ht0
+      exact ⟨Step.lLeave (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) κ (Rename.view e.fwd v) hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD, rfl, rfl⟩
+  | lUnload a f κ v o hf hl hg =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have hgD : ¬ relied (Rename.state e.fwd s).reg (e.fwd a) := by
+        intro hbad
+        have hg0 : relied s.reg a :=
+          (Rename.relied_rename_iff e s.reg a).mp (by simpa [Rename.state] using hbad)
+        exact hg hg0
+      exact ⟨Step.lUnload (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) κ (Rename.view e.fwd v) o hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) hgD, rfl, rfl⟩
+
+
+/-- The faithful `L-Iter` next state, expanded. -/
+theorem Step.next_lIter_eq {s : State N K E V} {a : N} {f : Fiber N K V E}
+    {ι : Iterator (Ctx K V) E} {κ : Ctx K V → Ctx K V} {v : K → Option N}
+    {ι' : Iterator (Ctx K V) E} {δ : Ctx K V} {hinv : Ctx K V → Ctx K V}
+    {hreach : Iterator.Reachable f.comp.iter ι}
+    (hf : lookup s.reg a = some f) (hl : f.lc = .loading ι κ v)
+    (ht : targetOf s.reg a = some v)
+    (hstep : Iterator.step ι (State.fullCtx s) = .ok (δ, hinv, some ι')) :
+    Step.next (Step.lIter (s := s) a f ι κ v ι' δ hinv hreach hf hl ht hstep) =
+      ⟨set s.reg a ({ f with table := splitTable f.comp.prov δ.2, lc := .loading ι' (κ ∘ hinv) v }), δ.1⟩ := by
+  simp [Step.next, Step.edit, Step.psi, hstep, hf, set_set_eq, State.writeEffect_eq_of_lookup, lookup_set_eq]
+
+/-- The faithful `L-Finish` next state, expanded. -/
+theorem Step.next_lFinish_eq {s : State N K E V} {a : N} {f : Fiber N K V E}
+    {ι : Iterator (Ctx K V) E} {κ : Ctx K V → Ctx K V} {v : K → Option N}
+    {δ : Ctx K V} {hinv : Ctx K V → Ctx K V}
+    {hreach : Iterator.Reachable f.comp.iter ι}
+    (hf : lookup s.reg a = some f) (hl : f.lc = .loading ι κ v)
+    (ht : targetOf s.reg a = some v)
+    (hstep : Iterator.step ι (State.fullCtx s) = .ok (δ, hinv, none)) :
+    Step.next (Step.lFinish (s := s) a f ι κ v δ hinv hreach hf hl ht hstep) =
+      ⟨set s.reg a ({ f with table := splitTable f.comp.prov δ.2, lc := .active (κ ∘ hinv) v }), δ.1⟩ := by
+  simp [Step.next, Step.edit, Step.psi, hstep, hf, set_set_eq, State.writeEffect_eq_of_lookup, lookup_set_eq]
+
+/-- The faithful `L-DivertLand` next state, expanded. -/
+theorem Step.next_lDivertLand_eq {s : State N K E V} {a : N} {f : Fiber N K V E}
+    {ι : Iterator (Ctx K V) E} {κ : Ctx K V → Ctx K V} {v : K → Option N}
+    {δ : Ctx K V} {hinv : Ctx K V → Ctx K V} {c : Option (Iterator (Ctx K V) E)}
+    {hreach : Iterator.Reachable f.comp.iter ι}
+    (hf : lookup s.reg a = some f) (hl : f.lc = .loading ι κ v)
+    (ht : targetOf s.reg a ≠ some v)
+    (hstep : Iterator.step ι (State.fullCtx s) = .ok (δ, hinv, c)) :
+    Step.next (Step.lDivertLand (s := s) a f ι κ v δ hinv c hreach hf hl ht hstep) =
+      ⟨set s.reg a ({ f with table := splitTable f.comp.prov δ.2, lc := .unloading (κ ∘ hinv) v none }), δ.1⟩ := by
+  simp [Step.next, Step.edit, Step.psi, hstep, hf, set_set_eq, State.writeEffect_eq_of_lookup, lookup_set_eq]
+
+/-- The faithful `L-Unload` next state, expanded. -/
+theorem Step.next_lUnload_eq {s : State N K E V} {a : N} {f : Fiber N K V E}
+    {κ : Ctx K V → Ctx K V} {v : K → Option N} {o : Option E}
+    (hf : lookup s.reg a = some f) (hl : f.lc = .unloading κ v o)
+    (hg : ¬ relied s.reg a) :
+    Step.next (Step.lUnload (s := s) a f κ v o hf hl hg) =
+      ⟨set s.reg a ({ f with table := splitTable f.comp.prov (κ (State.fullCtx s)).2, lc := .inactive o }), (κ (State.fullCtx s)).1⟩ := by
+  simp [Step.next, Step.edit, Step.psi, hf, set_set_eq, State.writeEffect_eq_of_lookup, lookup_set_eq]
+
+/-- **Lemma 56, next-state half.**  Renaming by a bijection commutes with
+the faithful `Step.next`: the renamed successor state is exactly the
+successor of the renamed step. -/
+theorem step_rename_next {s : State N K E V} (e : NameEquiv N M) (st : Step s) :
+    ∃ st' : Step (Rename.state e.fwd s),
+      st'.name = e.fwd st.name ∧ st'.kind = st.kind ∧
+        Rename.state e.fwd (Step.next st) = Step.next st' := by
+  cases st with
+  | oInsert a c p hn hp hdisj =>
+      have hlookD : lookup (Rename.state e.fwd s).reg (e.fwd a) = none := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hn]
+        rfl
+      have hpD : ∀ n' ∈ Rename.option e.fwd p,
+          ∃ f, lookup (Rename.state e.fwd s).reg n' = some f := by
+        intro n' hn'
+        cases p with
+        | none => simp [Rename.option] at hn'
+        | some b =>
+            simp [Rename.option] at hn'
+            rcases hp b (by simp) with ⟨f, hf⟩
+            refine ⟨Rename.fiber e.fwd f, ?_⟩
+            simp [Rename.state]
+            rw [← hn']
+            rw [Rename.lookup_rename e.fwd s.reg b (NameEquiv.fwd_injective e)]
+            rw [hf]
+            rfl
+      have hdisjD : ∀ n' f, lookup (Rename.state e.fwd s).reg n' = some f →
+          (∀ k ∈ c.prov, ∀ k' ∈ f.comp.prov, k ≠ k') := by
+        intro n' g hlook k hk k' hk'
+        rcases lookup_rename_state_some e hlook with ⟨f0, hf0, hgf⟩
+        rw [← hgf] at hk'
+        exact hdisj (e.bwd n') f0 hf0 k hk k' hk'
+      let st' := Step.oInsert (s := Rename.state e.fwd s) (e.fwd a) c
+        (Rename.option e.fwd p) hlookD hpD hdisjD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · simp [Step.next, Step.edit, Step.psi, Rename.state, st']
+        rw [Rename.set_rename e.fwd (NameEquiv.fwd_injective e) s.reg a
+          (Fiber.mk c p (fun _ => none) false (.inactive none))]
+        rfl
+  | oRetire a f hf =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      let st' := Step.oRetire (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) hfD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        simp [Step.next, Step.edit, Step.psi, Rename.state, st', hfD', hf]
+        rw [Rename.set_rename e.fwd (NameEquiv.fwd_injective e) s.reg a
+          { f with retired := true }]
+        simp [Rename.fiber, Rename.lifecycle]
+  | oRemove a f o hf hl hchild =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have hchildD : ∀ n' f', lookup (Rename.state e.fwd s).reg n' = some f' →
+          f'.parent ≠ some (e.fwd a) := by
+        intro n' g hlook
+        rcases lookup_rename_state_some e hlook with ⟨f0, hf0, hgf⟩
+        rw [← hgf]
+        intro hparent
+        have hparent0 : f0.parent = some a := by
+          apply Rename.option_injective (NameEquiv.fwd_injective e)
+          simpa [Rename.fiber, Rename.option] using hparent
+        exact hchild (e.bwd n') f0 hf0 hparent0
+      let st' := Step.oRemove (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) o hfD (by simp [Rename.fiber]; rw [hl]; rfl) hchildD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        simp [Step.next, Step.edit, Step.psi, Rename.state, st', hfD', hf,
+          Rename.del_rename e.fwd (NameEquiv.fwd_injective e) s.reg a]
+  | lBegin a f v hf hl ht htable =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.view e.fwd v) := by
+        simp [Rename.state]
+        rw [Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [ht]
+        rfl
+      have htableD : (Rename.fiber e.fwd f).table = fun _ => none := by
+        simpa [Rename.fiber] using htable
+      let st' := Step.lBegin (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) (Rename.view e.fwd v) hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD htableD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        simp [Step.next, Step.edit, Step.psi, Rename.state, st', hfD', hf]
+        rw [Rename.set_rename e.fwd (NameEquiv.fwd_injective e) s.reg a
+          { f with lc := .loading f.comp.iter id v }]
+        simp [Rename.fiber, Rename.lifecycle]
+  | lIter a f ι κ v ι' δ hinv hreach hf hl ht hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.view e.fwd v) := by
+        simp [Rename.state]
+        rw [Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [ht]
+        rfl
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.ok (δ, hinv, some ι') := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      let st' := Step.lIter (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) ι' δ hinv hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD hstepD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        rw [Step.next_lIter_eq hf hl ht hstep,
+          Step.next_lIter_eq (s := Rename.state e.fwd s) (a := e.fwd a)
+            (f := Rename.fiber e.fwd f) (ι := ι) (κ := κ) (v := Rename.view e.fwd v)
+            (ι' := ι') (δ := δ) (hinv := hinv) (hreach := hreach)
+            (hf := hfD) (hl := by simp [Rename.fiber]; rw [hl]; rfl)
+            (ht := htD) (hstep := hstepD)]
+        rw [Rename.state_set_rename e s a f (splitTable f.comp.prov δ.2)
+          (.loading ι' (κ ∘ hinv) v) δ.1]
+        simp [Rename.fiber, Rename.lifecycle, splitTable]
+  | lFinish a f ι κ v δ hinv hreach hf hl ht hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.view e.fwd v) := by
+        simp [Rename.state]
+        rw [Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [ht]
+        rfl
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.ok (δ, hinv, none) := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      let st' := Step.lFinish (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) δ hinv hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD hstepD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        rw [Step.next_lFinish_eq hf hl ht hstep,
+          Step.next_lFinish_eq (s := Rename.state e.fwd s) (a := e.fwd a)
+            (f := Rename.fiber e.fwd f) (ι := ι) (κ := κ) (v := Rename.view e.fwd v)
+            (δ := δ) (hinv := hinv) (hreach := hreach)
+            (hf := hfD) (hl := by simp [Rename.fiber]; rw [hl]; rfl)
+            (ht := htD) (hstep := hstepD)]
+        rw [Rename.state_set_rename e s a f (splitTable f.comp.prov δ.2)
+          (.active (κ ∘ hinv) v) δ.1]
+        simp [Rename.fiber, Rename.lifecycle, splitTable]
+  | lRaise a f ι κ v e0 hreach hf hl hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.error e0 := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      let st' := Step.lRaise (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) e0 hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) hstepD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        simp [Step.next, Step.edit, Step.psi, Rename.state, st', hfD', hf]
+        rw [Rename.set_rename e.fwd (NameEquiv.fwd_injective e) s.reg a
+          { f with lc := .unloading κ v (some e0) }]
+        simp [Rename.fiber, Rename.lifecycle]
+  | lDivertAbort a f ι κ v hreach hf hl ht =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) ≠
+          some (Rename.view e.fwd v) := by
+        intro hbad
+        have ht0 : targetOf s.reg a = some v := by
+          have htp := Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)
+          have hbad0 : Option.map (Rename.view e.fwd) (targetOf s.reg a) =
+              some (Rename.view e.fwd v) := by
+            simpa [Rename.state, htp] using hbad
+          have view_inj : Function.Injective
+              (Rename.view (N:=N) (M:=M) (K:=K) e.fwd) := by
+            intro u w h
+            apply funext
+            intro k
+            exact Rename.option_injective (NameEquiv.fwd_injective e) (congrFun h k)
+          cases htarget : targetOf s.reg a with
+          | none => simp [htarget] at hbad0
+          | some v0 =>
+              have hv0 : v0 = v := view_inj
+                (Option.some.inj (by simpa [htarget] using hbad0))
+              rw [hv0]
+        exact ht ht0
+      let st' := Step.lDivertAbort (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        simp [Step.next, Step.edit, Step.psi, Rename.state, st', hfD', hf]
+        rw [Rename.set_rename e.fwd (NameEquiv.fwd_injective e) s.reg a
+          { f with lc := .unloading κ v none }]
+        simp [Rename.fiber, Rename.lifecycle]
+  | lDivertLand a f ι κ v δ hinv c hreach hf hl ht hstep =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) ≠
+          some (Rename.view e.fwd v) := by
+        intro hbad
+        have ht0 : targetOf s.reg a = some v := by
+          have htp := Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)
+          have hbad0 : Option.map (Rename.view e.fwd) (targetOf s.reg a) =
+              some (Rename.view e.fwd v) := by
+            simpa [Rename.state, htp] using hbad
+          have view_inj : Function.Injective
+              (Rename.view (N:=N) (M:=M) (K:=K) e.fwd) := by
+            intro u w h
+            apply funext
+            intro k
+            exact Rename.option_injective (NameEquiv.fwd_injective e) (congrFun h k)
+          cases htarget : targetOf s.reg a with
+          | none => simp [htarget] at hbad0
+          | some v0 =>
+              have hv0 : v0 = v := view_inj
+                (Option.some.inj (by simpa [htarget] using hbad0))
+              rw [hv0]
+        exact ht ht0
+      have hstepD : Cordix.Iterator.step ι (State.fullCtx (Rename.state e.fwd s)) =
+          Except.ok (δ, hinv, c) := by
+        rw [Rename.fullCtx_rename e.fwd s]
+        exact hstep
+      let st' := Step.lDivertLand (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) ι κ (Rename.view e.fwd v) δ hinv c hreach hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD hstepD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        rw [Step.next_lDivertLand_eq hf hl ht hstep,
+          Step.next_lDivertLand_eq (s := Rename.state e.fwd s) (a := e.fwd a)
+            (f := Rename.fiber e.fwd f) (ι := ι) (κ := κ) (v := Rename.view e.fwd v)
+            (δ := δ) (hinv := hinv) (c := c) (hreach := hreach)
+            (hf := hfD) (hl := by simp [Rename.fiber]; rw [hl]; rfl)
+            (ht := htD) (hstep := hstepD)]
+        rw [Rename.state_set_rename e s a f (splitTable f.comp.prov δ.2)
+          (.unloading (κ ∘ hinv) v none) δ.1]
+        simp [Rename.fiber, Rename.lifecycle, splitTable]
+  | lLeave a f κ v hf hl ht =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have htD : targetOf (Rename.state e.fwd s).reg (e.fwd a) ≠
+          some (Rename.view e.fwd v) := by
+        intro hbad
+        have ht0 : targetOf s.reg a = some v := by
+          have htp := Rename.targetOf_rename e.fwd s.reg a (NameEquiv.fwd_injective e)
+          have hbad0 : Option.map (Rename.view e.fwd) (targetOf s.reg a) =
+              some (Rename.view e.fwd v) := by
+            simpa [Rename.state, htp] using hbad
+          have view_inj : Function.Injective
+              (Rename.view (N:=N) (M:=M) (K:=K) e.fwd) := by
+            intro u w h
+            apply funext
+            intro k
+            exact Rename.option_injective (NameEquiv.fwd_injective e) (congrFun h k)
+          cases htarget : targetOf s.reg a with
+          | none => simp [htarget] at hbad0
+          | some v0 =>
+              have hv0 : v0 = v := view_inj
+                (Option.some.inj (by simpa [htarget] using hbad0))
+              rw [hv0]
+        exact ht ht0
+      let st' := Step.lLeave (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) κ (Rename.view e.fwd v) hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) htD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        simp [Step.next, Step.edit, Step.psi, Rename.state, st', hfD', hf]
+        rw [Rename.set_rename e.fwd (NameEquiv.fwd_injective e) s.reg a
+          { f with lc := .unloading κ v none }]
+        simp [Rename.fiber, Rename.lifecycle]
+  | lUnload a f κ v o hf hl hg =>
+      have hfD : lookup (Rename.state e.fwd s).reg (e.fwd a) =
+          some (Rename.fiber e.fwd f) := by
+        simp [Rename.state]
+        rw [Rename.lookup_rename e.fwd s.reg a (NameEquiv.fwd_injective e)]
+        rw [hf]
+        rfl
+      have hgD : ¬ relied (Rename.state e.fwd s).reg (e.fwd a) := by
+        intro hbad
+        have hg0 : relied s.reg a :=
+          (Rename.relied_rename_iff e s.reg a).mp (by simpa [Rename.state] using hbad)
+        exact hg hg0
+      let st' := Step.lUnload (s := Rename.state e.fwd s) (e.fwd a)
+        (Rename.fiber e.fwd f) κ (Rename.view e.fwd v) o hfD
+        (by simp [Rename.fiber]; rw [hl]; rfl) hgD
+      refine ⟨st', rfl, rfl, ?_⟩
+      · have hfD' : lookup (Rename.registry e.fwd s.reg) (e.fwd a) =
+            some (Rename.fiber e.fwd f) := by
+          simpa [Rename.state] using hfD
+        rw [Step.next_lUnload_eq hf hl hg,
+          Step.next_lUnload_eq (s := Rename.state e.fwd s) (a := e.fwd a)
+            (f := Rename.fiber e.fwd f) (κ := κ) (v := Rename.view e.fwd v) (o := o)
+            (hf := hfD) (hl := by simp [Rename.fiber]; rw [hl]; rfl) (hg := hgD)]
+        rw [Rename.state_set_rename e s a f (splitTable f.comp.prov (κ (State.fullCtx s)).2)
+          (.inactive o) (κ (State.fullCtx s)).1]
+        simp [Rename.fiber, Rename.lifecycle, splitTable, Rename.fullCtx_rename e.fwd s]
+
+/-- Transport a step along an equality of its source states. -/
+def Step.cast {s t : State N K E V} (h : s = t) (st : Step s) : Step t := h ▸ st
+
+/-- Casting does not change the acting name. -/
+theorem Step.cast_name {s t : State N K E V} (h : s = t) (st : Step s) :
+    (Step.cast h st).name = st.name := by
+  subst h
+  rfl
+
+/-- Casting does not change the rule kind. -/
+theorem Step.cast_kind {s t : State N K E V} (h : s = t) (st : Step s) :
+    (Step.cast h st).kind = st.kind := by
+  subst h
+  rfl
+
+/-- **Lemma 56, reverse half.**  A step at the forward-renamed state can
+be transported back to a step at the original state, acting on the inverse
+image of the acting name and with the same rule kind. -/
+theorem step_rename_bwd {s : State N K E V} (e : NameEquiv N M)
+    (st : Step (Rename.state e.fwd s)) :
+    ∃ st' : Step s, st'.name = e.bwd st.name ∧ st'.kind = st.kind := by
+  rcases step_rename e.symm st with ⟨st0, hname, hkind⟩
+  have hsymm : Rename.state e.symm.fwd (Rename.state e.fwd s) =
+      Rename.state e.bwd (Rename.state e.fwd s) := by
+    simp [NameEquiv.symm]
+  have hstate : Rename.state e.bwd (Rename.state e.fwd s) = s :=
+    Rename.state_comp e s
+  let st1 : Step s := Step.cast hstate (Step.cast hsymm st0)
+  have hname1 : st1.name = st0.name := by
+    show (Step.cast hstate (Step.cast hsymm st0)).name = st0.name
+    rw [Step.cast_name]
+    rw [Step.cast_name]
+  have hkind1 : st1.kind = st0.kind := by
+    show (Step.cast hstate (Step.cast hsymm st0)).kind = st0.kind
+    rw [Step.cast_kind]
+    rw [Step.cast_kind]
+  refine ⟨st1, ?_, ?_⟩
+  · exact hname1.trans (hname.trans (by simp [NameEquiv.symm]))
+  · exact hkind1.trans hkind
+
+end Cordix

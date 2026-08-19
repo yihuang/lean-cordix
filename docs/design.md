@@ -38,6 +38,14 @@ The model is split into flat modules under `LeanCordix/`:
 | `LeanCordix/Approx.lean` | `State.Approx` (`≈`), rawSigma splitting/merging theorems, `State.recover_psi_commute_approx_of_indep` (local Theorem 61) |
 | `LeanCordix/Recovery.lean` | Confinement transfer, `Step.psi_preserves_approx`/`fullCtx`, `edit_approx_psi_of_ne_remove`, self-step recovery lemmas, `SameFiber` |
 | `LeanCordix/Trace.lean` | `StepTrace`, `foldPsiExcept`, trace-local predicates `PsiFiberAgrees`/`PsiConfinedAgrees`, trace-level Theorem 61 / Corollary 62 |
+| `LeanCordix/WellFormed.lean` | Definition 58 well-formedness and Theorem 59 preservation, including `WellFormed.preserved` and trace preservation |
+| `LeanCordix/Progress.lean` | Theorem 66 progress/no-deadlock scaffolding: `Precedes`, `Acyclic`, `ConfinedWellFormed`, `exists_lifecycle_step_of_not_quiet` |
+| `LeanCordix/Termination.lean` | Theorem 66 termination scaffolding: `StepTrace.length`, `countFor`, `targetTurns`, interval bounds |
+| `LeanCordix/Vestigial.lean` | Lemma 54/57 vestigial entries and step-local preservation lemmas |
+| `LeanCordix/Invariance.lean` | Lemma 55 observational state equivalence and `step_transport` |
+| `LeanCordix/Equivariance.lean` | Lemma 56 name renaming/equivariance: `NameEquiv`, `Rename`, `step_rename`, `step_rename_bwd`, `step_rename_next` |
+| `LeanCordix/Coherence.lean` | Theorem 64 resolution coherence |
+| `LeanCordix/TableConfined.lean` | Table-confinement machinery, `Registry.TableConfined`, `TableConfinedWellFormed`, table-aware trace preservation |
 
 Shared infrastructure:
 
@@ -440,10 +448,22 @@ The trace-level Corollary 62 currently takes explicit side conditions:
 - trace-local `PsiFiberAgrees` / `PsiConfinedAgrees` (already derivable from
   `SameFiberAt` and write-confinement).
 
+Recovered metatheory (ported from the deleted legacy modules):
+
+- Definition 58 / Theorem 59: `LeanCordix/WellFormed.lean`;
+- Theorem 66 progress/termination: `LeanCordix/Progress.lean` and
+  `LeanCordix/Termination.lean`;
+- Lemma 54/57: `LeanCordix/Vestigial.lean`;
+- Lemma 55/56: `LeanCordix/Invariance.lean` and
+  `LeanCordix/Equivariance.lean`;
+- Theorem 64: `LeanCordix/Coherence.lean`;
+- Table-confinement machinery: `LeanCordix/TableConfined.lean`.
+
 Possible next steps:
 
-1. Derive `hconf_iter` / `hconf_acc` from more primitive
-   `Component.Confined` / `Lifecycle.Confined` preservation theorems;
-2. Port preservation results of `ConfinedWellFormed` /
-   `TableConfinedWellFormed` style to the current model;
-3. Continue with termination and progress results for the full-context model.
+1. Derive `hconf_iter` / `hconf_acc` from the ported
+   `Component.TableConfined` / `Registry.TableConfined` preservation
+   theorems;
+2. Finish the remaining combinatorial half of Theorem 66.2 (the
+   per-interval bound `B = len n + 4`) and then the full confluence proof
+   (Theorem 73) using the recovered Lemma 55/56/57 and termination pieces.

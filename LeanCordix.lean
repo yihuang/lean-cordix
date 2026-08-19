@@ -15,3 +15,11 @@ import LeanCordix.Step
 import LeanCordix.Approx
 import LeanCordix.Recovery
 import LeanCordix.Trace
+import LeanCordix.WellFormed
+import LeanCordix.Progress
+import LeanCordix.Termination
+import LeanCordix.Vestigial
+import LeanCordix.Invariance
+import LeanCordix.Equivariance
+import LeanCordix.Coherence
+import LeanCordix.TableConfined
