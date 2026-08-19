@@ -485,6 +485,44 @@ theorem next_commute_of_control_distinct {s : State N K E V} (st₁ st₂ : Step
       | _ => simp [IsControlKind, Step.kind] at h₂
   | _ => simp [IsControlKind, Step.kind] at h₁
 
+/-- **Lemma 71 special case: `L-Begin`/`L-Begin`.**  Two `L-Begin` steps on
+distinct names commute exactly.  `L-Begin` has identity `Ψ`, so this is the
+corresponding edit commutation; it holds without extra side conditions
+because an absent name makes the `L-Begin` edit the identity. -/
+theorem next_commute_of_lBegin_lBegin_distinct {s : State N K E V} (st1 st2 : Step s)
+    (h1 : st1.kind = Full.StepKind.lBegin)
+    (h2 : st2.kind = Full.StepKind.lBegin)
+    (hne : st1.name ≠ st2.name) :
+    Step.edit st1 (Step.edit st2 s) = Step.edit st2 (Step.edit st1 s) := by
+  cases s with
+  | mk sreg samb =>
+      cases st1 with
+      | lBegin n₁ f₁ v₁ hf₁ hl₁ ht₁ htable₁ =>
+          cases st2 with
+          | lBegin n₂ f₂ v₂ hf₂ hl₂ ht₂ htable₂ =>
+              simp [Step.kind] at h1 h2
+              have hne' : n₁ ≠ n₂ := by
+                simpa [Step.name] using hne
+              by_cases h₁some : (lookup sreg n₁).isSome
+              · rcases Option.isSome_iff_exists.mp h₁some with ⟨g₁, hg₁⟩
+                by_cases h₂some : (lookup sreg n₂).isSome
+                · rcases Option.isSome_iff_exists.mp h₂some with ⟨g₂, hg₂⟩
+                  simp [Step.edit, hg₁, hg₂, lookup_set_ne, hne', Ne.symm hne',
+                    set_set_comm_of_lookup (r := sreg) (n := n₁) (m := n₂)
+                      (f := { g₁ with lc := .loading g₁.comp.iter id v₁ })
+                      (g := { g₂ with lc := .loading g₂.comp.iter id v₂ })
+                      hne' ⟨g₁, hg₁⟩ ⟨g₂, hg₂⟩]
+                · have hn₂ : lookup sreg n₂ = none := Option.not_isSome_iff_eq_none.mp h₂some
+                  simp [Step.edit, hg₁, hn₂, lookup_set_ne, hne', Ne.symm hne']
+              · have hn₁ : lookup sreg n₁ = none := Option.not_isSome_iff_eq_none.mp h₁some
+                by_cases h₂some : (lookup sreg n₂).isSome
+                · rcases Option.isSome_iff_exists.mp h₂some with ⟨g₂, hg₂⟩
+                  simp [Step.edit, hn₁, hg₂, lookup_set_ne, hne', Ne.symm hne']
+                · have hn₂ : lookup sreg n₂ = none := Option.not_isSome_iff_eq_none.mp h₂some
+                  simp [Step.edit, hn₁, hn₂]
+          | _ => simp [Step.kind] at h2
+      | _ => simp [Step.kind] at h1
+
 end -- noncomputable section
 
 end Cordix
